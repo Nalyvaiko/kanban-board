@@ -15,6 +15,10 @@ async function asJohn() {
   await api.login({ email: "john@example.com", password: "password" });
 }
 
+async function asSarah() {
+  await api.login({ email: "sarah@example.com", password: "password" });
+}
+
 beforeEach(() => {
   resetDb();
   api = new MockJiraApi();
@@ -203,14 +207,25 @@ describe("comments", () => {
     expect(updated.body).toBe("Fixed the regex");
   });
 
-  it("only the author can delete a comment", async () => {
+  it("only the author or a project admin can delete a comment", async () => {
     await asDemo();
     const comments = await api.listComments("task_101");
     const johns = comments.find((c) => c.authorId === "user_john")!;
+    await asSarah();
     await expect(api.deleteComment(johns.id)).rejects.toMatchObject({ status: 403 });
     await asJohn();
     await api.deleteComment(johns.id);
     expect(await api.listComments("task_101")).toHaveLength(0);
+  });
+
+  it("a project admin can delete another member's comment", async () => {
+    await asJohn();
+    const added = await api.addComment("task_101", "Draft note");
+    await asDemo();
+    await api.deleteComment(added.id);
+    expect(await api.listComments("task_101")).not.toContainEqual(
+      expect.objectContaining({ id: added.id }),
+    );
   });
 });
 

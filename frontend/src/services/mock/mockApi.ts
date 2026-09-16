@@ -773,7 +773,10 @@ export class MockJiraApi implements JiraApi {
     const comment = db.comments.find((c) => c.id === commentId);
     if (!comment) notFound("Comment");
     const me = this.session();
-    if (comment.authorId !== me.id) forbidden("You can only delete your own comments");
+    const task = this.task(comment.taskId);
+    const role = this.role(task.projectId);
+    if (comment.authorId !== me.id && role !== "admin")
+      forbidden("You can only delete your own comments");
     db.comments = db.comments.filter((c) => c.id !== commentId);
     return tick(undefined);
   }
