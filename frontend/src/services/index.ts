@@ -1,12 +1,12 @@
 import type { JiraApi } from "./api";
-import { MockJiraApi } from "./mock/mockApi";
+import { HttpJiraApi } from "./http/httpApi";
 
 /**
  * The single entry point for every backend call in the app.
- * Swap this factory for an HTTP-backed implementation of `JiraApi`
- * and the rest of the application keeps working unchanged.
+ * Backed by the FastAPI server (see backend/); point VITE_API_BASE_URL
+ * at a different host to target another environment.
  */
-export const api: JiraApi = new MockJiraApi();
+export const api: JiraApi = new HttpJiraApi();
 
 export type { JiraApi };
 export * from "./types";
