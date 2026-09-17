@@ -1,9 +1,7 @@
 .PHONY: run run-backend run-frontend install install-backend install-frontend test test-backend test-frontend
 
 run:
-	cd backend && uv run kanban-backend & \
-	cd frontend && npm run dev & \
-	wait
+	$(MAKE) -j2 run-backend run-frontend
 
 run-backend:
 	cd backend && uv run kanban-backend
