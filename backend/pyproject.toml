@@ -1,7 +1,7 @@
 [project]
 name = "kanban-backend"
 version = "0.1.0"
-description = "In-memory REST API backend for the Mini Jira kanban board."
+description = "REST API backend for the Mini Jira kanban board, backed by a SQL database via SQLAlchemy/SQLModel."
 readme = "README.md"
 authors = [
     { name = "Vitalii", email = "v.yu.nalyvaiko@gmail.com" }
@@ -12,6 +12,7 @@ dependencies = [
     "fastapi>=0.141.1",
     "pydantic>=2.13.5",
     "python-multipart>=0.0.32",
+    "sqlmodel>=0.0.24",
     "uvicorn[standard]>=0.53.0",
 ]
 

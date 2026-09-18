@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+import os
+
+# Must be set before `kanban_backend.db` is imported (by any import below),
+# since it reads DATABASE_URL once at import time. An in-memory DB keeps
+# tests fast and isolated from whatever the dev server has on disk.
+os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
+
 import pytest
 from fastapi.testclient import TestClient
 

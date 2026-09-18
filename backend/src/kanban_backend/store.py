@@ -1,13 +1,16 @@
-"""A process-local, in-memory data store.
+"""A thin, dict-like facade over the database.
 
-Nothing here touches a database - every collection is a plain dict keyed by
-id, held for the lifetime of the process. This is intentional for the MVP:
-it lets the whole backend run with zero setup, and it is small enough that
-swapping it for a real database later only means rewriting this one module.
+`Store` keeps the exact same public shape the original in-memory version
+had (`store.boards.get(id)`, `store.tasks[id] = task`, `store.list_boards(...)`,
+cascading-delete helpers, ...), so routers don't need to know or care that
+reads and writes now go through a SQLAlchemy `Session` under the hood. Each
+collection attribute (`.users`, `.boards`, ...) is a `_Collection` backed by
+`SessionLocal`, the process's thread-scoped session (see `db.py`).
 
-`Store` also owns a handful of cascading-delete helpers, since those are
-pure data operations shared by several routers (e.g. deleting a project
-must also delete its boards, tasks, comments, ...).
+Objects handed out by `.get()`/`.values()` are live, session-tracked rows:
+mutating a field on one and letting the request finish (see the commit
+middleware in `main.py`) is enough to persist it - the same "fetch it,
+change a field, done" pattern the routers already use.
 """
 
 from __future__ import annotations
@@ -15,18 +18,24 @@ from __future__ import annotations
 import threading
 from uuid import uuid4
 
+from sqlmodel import SQLModel, select
+
+from .db import SessionLocal, engine
 from .models import (
     Activity,
     Attachment,
     Board,
     Column,
     Comment,
+    Credential,
     Invitation,
     Label,
     Project,
     ProjectMember,
     Task,
+    TaskCounter,
     TaskRelation,
+    Token,
     User,
 )
 
@@ -35,59 +44,135 @@ def new_id(prefix: str) -> str:
     return f"{prefix}_{uuid4().hex[:12]}"
 
 
+class _Collection:
+    """Makes a table look like `dict[id, Model]`, backed by `SessionLocal`."""
+
+    def __init__(self, model: type[SQLModel]) -> None:
+        self._model = model
+
+    def get(self, id: str, default=None):
+        obj = SessionLocal.get(self._model, id)
+        return obj if obj is not None else default
+
+    def pop(self, id: str, default=None):
+        obj = SessionLocal.get(self._model, id)
+        if obj is None:
+            return default
+        SessionLocal.delete(obj)
+        SessionLocal.flush()
+        return obj
+
+    def values(self) -> list:
+        return list(SessionLocal.scalars(select(self._model)))
+
+    def keys(self) -> list[str]:
+        return [obj.id for obj in self.values()]
+
+    def __setitem__(self, id: str, value) -> None:
+        SessionLocal.add(value)
+        SessionLocal.flush()
+
+    def __getitem__(self, id: str):
+        obj = SessionLocal.get(self._model, id)
+        if obj is None:
+            raise KeyError(id)
+        return obj
+
+    def __contains__(self, id: str) -> bool:
+        return SessionLocal.get(self._model, id) is not None
+
+    def __len__(self) -> int:
+        return len(self.values())
+
+    def __iter__(self):
+        return (obj.id for obj in self.values())
+
+
+class _ScalarCollection:
+    """Adapts a two-column (key, value) table to look like `dict[key, value]`,
+    for the handful of things that aren't full entities (password hashes,
+    bearer tokens)."""
+
+    def __init__(self, model: type[SQLModel], key_attr: str, value_attr: str) -> None:
+        self._model = model
+        self._key_attr = key_attr
+        self._value_attr = value_attr
+
+    def get(self, key: str, default=None):
+        obj = SessionLocal.get(self._model, key)
+        return getattr(obj, self._value_attr) if obj is not None else default
+
+    def pop(self, key: str, default=None):
+        obj = SessionLocal.get(self._model, key)
+        if obj is None:
+            return default
+        value = getattr(obj, self._value_attr)
+        SessionLocal.delete(obj)
+        SessionLocal.flush()
+        return value
+
+    def __setitem__(self, key: str, value) -> None:
+        obj = SessionLocal.get(self._model, key)
+        if obj is None:
+            obj = self._model(**{self._key_attr: key, self._value_attr: value})
+            SessionLocal.add(obj)
+        else:
+            setattr(obj, self._value_attr, value)
+        SessionLocal.flush()
+
+    def __getitem__(self, key: str):
+        obj = SessionLocal.get(self._model, key)
+        if obj is None:
+            raise KeyError(key)
+        return getattr(obj, self._value_attr)
+
+    def values(self) -> list:
+        return [getattr(obj, self._value_attr) for obj in SessionLocal.scalars(select(self._model))]
+
+    def __len__(self) -> int:
+        return len(SessionLocal.scalars(select(self._model)).all())
+
+
 class Store:
     def __init__(self) -> None:
         self._lock = threading.Lock()
 
-        self.users: dict[str, User] = {}
+        self.users = _Collection(User)
         # userId -> "salt$hex_digest"; kept out of the User model on purpose.
-        self.credentials: dict[str, str] = {}
+        self.credentials = _ScalarCollection(Credential, "userId", "passwordHash")
         # bearer token -> userId
-        self.tokens: dict[str, str] = {}
+        self.tokens = _ScalarCollection(Token, "token", "userId")
 
-        self.projects: dict[str, Project] = {}
-        self.members: dict[str, ProjectMember] = {}
-        self.boards: dict[str, Board] = {}
-        self.columns: dict[str, Column] = {}
-        self.labels: dict[str, Label] = {}
-        self.tasks: dict[str, Task] = {}
-        self.comments: dict[str, Comment] = {}
-        self.attachments: dict[str, Attachment] = {}
-        self.relations: dict[str, TaskRelation] = {}
-        self.activities: dict[str, Activity] = {}
-        self.invitations: dict[str, Invitation] = {}
-
-        # projectId -> next numeric suffix for that project's task keys.
-        self._task_seq: dict[str, int] = {}
+        self.projects = _Collection(Project)
+        self.members = _Collection(ProjectMember)
+        self.boards = _Collection(Board)
+        self.columns = _Collection(Column)
+        self.labels = _Collection(Label)
+        self.tasks = _Collection(Task)
+        self.comments = _Collection(Comment)
+        self.attachments = _Collection(Attachment)
+        self.relations = _Collection(TaskRelation)
+        self.activities = _Collection(Activity)
+        self.invitations = _Collection(Invitation)
 
     def reset(self) -> None:
         """Wipes all data. Used between test cases to start from a blank slate."""
-        for collection in (
-            self.users,
-            self.credentials,
-            self.tokens,
-            self.projects,
-            self.members,
-            self.boards,
-            self.columns,
-            self.labels,
-            self.tasks,
-            self.comments,
-            self.attachments,
-            self.relations,
-            self.activities,
-            self.invitations,
-            self._task_seq,
-        ):
-            collection.clear()
+        SessionLocal.remove()
+        SQLModel.metadata.drop_all(engine)
+        SQLModel.metadata.create_all(engine)
+        SessionLocal.remove()
 
     # -- generic helpers ----------------------------------------------------
 
     def next_task_number(self, project_id: str) -> int:
         with self._lock:
-            n = self._task_seq.get(project_id, 0) + 1
-            self._task_seq[project_id] = n
-            return n
+            counter = SessionLocal.get(TaskCounter, project_id)
+            if counter is None:
+                counter = TaskCounter(projectId=project_id, value=0)
+                SessionLocal.add(counter)
+            counter.value += 1
+            SessionLocal.flush()
+            return counter.value
 
     # -- membership -----------------------------------------------------
 
@@ -168,6 +253,6 @@ class Store:
                 task.assigneeId = None
 
 
-# Single process-wide instance. Good enough for the MVP; a real deployment
-# would replace this module with a database-backed implementation.
+# Single process-wide instance. Its collections route to a thread-scoped
+# SQLAlchemy session (see db.py), so this is safe to share across requests.
 store = Store()

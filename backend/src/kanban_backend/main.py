@@ -5,9 +5,10 @@ Run with: `uv run uvicorn kanban_backend.main:app --reload`
 
 from __future__ import annotations
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
+from .db import SessionLocal, init_db
 from .routers import (
     activity,
     attachments,
@@ -52,6 +53,21 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    @app.middleware("http")
+    async def db_session_middleware(request: Request, call_next):
+        # Commits whatever this request's thread-local session accumulated,
+        # rolls back on an unhandled error, and always tears the session
+        # down afterward so a pooled thread starts the next request clean.
+        try:
+            response = await call_next(request)
+            SessionLocal.commit()
+            return response
+        except Exception:
+            SessionLocal.rollback()
+            raise
+        finally:
+            SessionLocal.remove()
+
     for router in ALL_ROUTERS:
         app.include_router(router, prefix="/api")
 
@@ -60,7 +76,14 @@ def create_app() -> FastAPI:
 
 app = create_app()
 
+init_db()
+
 # Seeded once, at import time, so the API has demo data as soon as the
 # process starts - no separate setup step required. Tests reset the store
 # between cases (see tests/conftest.py) rather than relying on this data.
-seed_demo_data(store)
+# Only seeds an empty database, so restarting the server (or pointing it at
+# an already-seeded DB) doesn't recreate the demo accounts/projects.
+if not store.users.values():
+    seed_demo_data(store)
+    SessionLocal.commit()
+SessionLocal.remove()

@@ -7,5 +7,5 @@ def main() -> None:
         host="127.0.0.1",
         port=8000,
         reload=True,
-        reload_excludes=[".venv/*", "*/.venv/*"],
+        reload_excludes=[".venv/*", "*/.venv/*", "*.db", "*.db-journal", "*.db-wal", "*.db-shm"],
     )

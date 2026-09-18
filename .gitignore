@@ -38,3 +38,7 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .ruff_cache/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm

@@ -6,11 +6,24 @@ implements).
 
 ## Data storage
 
-Everything lives in an in-memory `Store` (`src/kanban_backend/store.py`) -
-no database, no external services. Data resets whenever the process
-restarts, and the store is seeded with a demo project, users, boards, and
-tasks at import time (`src/kanban_backend/seed.py`) so the frontend has
-something to look at immediately.
+Data is persisted through SQLAlchemy/SQLModel (`src/kanban_backend/db.py`,
+`store.py`) to whatever database `DATABASE_URL` points at - any SQLAlchemy
+URL works, so switching from SQLite to Postgres later is a config change,
+not a code change. Defaults to a local SQLite file (`./kanban.db`, relative
+to wherever the process is started) if `DATABASE_URL` isn't set:
+
+```sh
+DATABASE_URL=sqlite:///./kanban.db uv run kanban-backend        # default
+DATABASE_URL=postgresql+psycopg://user:pass@host/db uv run kanban-backend
+```
+
+Using Postgres requires installing a driver (e.g. `uv add psycopg[binary]`)
+that isn't part of this project's dependencies by default.
+
+On first run against an empty database, `src/kanban_backend/seed.py` seeds a
+demo project, users, boards, and tasks so the frontend has something to look
+at immediately. Restarting against an already-seeded database (the normal
+case now that data persists) skips seeding.
 
 Seeded accounts (all use the password `password123`):
 
@@ -33,11 +46,12 @@ opaque bearer tokens returned by `/auth/register`, `/auth/login`, and
 
 ```
 src/kanban_backend/
-  main.py          FastAPI app assembly, CORS, router registration
-  models.py        Pydantic schemas for every entity and request/response body
-  store.py         In-memory data store + cascading-delete helpers
+  main.py          FastAPI app assembly, CORS, router registration, DB session commit/rollback
+  db.py            SQLAlchemy engine/session config, driven by DATABASE_URL
+  models.py        SQLModel entities (table + Pydantic schema in one) and request/response bodies
+  store.py         Dict-like facade over the DB + cascading-delete helpers
   auth.py          Password hashing, bearer tokens, role-check dependencies
-  seed.py          Demo data seeding
+  seed.py          Demo data seeding (only runs against an empty database)
   activity_log.py  Shared helper for writing to the project activity feed
   viewmodels.py    Composes "with relation" view models (e.g. comment + author)
   routers/         One module per resource (auth, projects, tasks, ...)
@@ -60,6 +74,7 @@ Interactive docs are at `/docs`.
 uv run pytest
 ```
 
-Each test gets a blank store (see `tests/conftest.py`) and builds whatever
-data it needs through the API itself, so tests don't depend on the seed
-data's exact contents.
+Tests run against an isolated in-memory SQLite database (see
+`tests/conftest.py`), reset to blank before and after each test, and build
+whatever data they need through the API itself rather than depending on the
+seed data's exact contents.
