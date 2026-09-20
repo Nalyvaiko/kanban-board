@@ -68,6 +68,13 @@ uv run kanban-backend
 The API is served under `/api` (e.g. `http://127.0.0.1:8000/api/projects`).
 Interactive docs are at `/docs`.
 
+If a `static/` directory is present next to this file (populated by the
+Docker build - see `../Dockerfile` - not by local dev), `main.py` also
+serves it directly at `/`, with any unmatched path falling back to its
+`index.html` so client-side routing works. In local dev, `static/` doesn't
+exist, so this is skipped entirely and only the API is served; run the
+frontend separately (`cd ../frontend && npm run dev`).
+
 ## Testing
 
 ```sh

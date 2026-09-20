@@ -42,3 +42,6 @@ __pycache__/
 *.db-journal
 *.db-wal
 *.db-shm
+
+# Frontend build output copied in by the Docker build (see Dockerfile)
+/backend/static/
