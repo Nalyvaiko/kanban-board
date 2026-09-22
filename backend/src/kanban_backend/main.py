@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from .db import SessionLocal, init_db
+from .db import SessionLocal, end_session_scope, init_db, new_session_scope
 from .routers import (
     activity,
     attachments,
@@ -64,9 +64,12 @@ def create_app() -> FastAPI:
 
     @app.middleware("http")
     async def db_session_middleware(request: Request, call_next):
-        # Commits whatever this request's thread-local session accumulated,
-        # rolls back on an unhandled error, and always tears the session
-        # down afterward so a pooled thread starts the next request clean.
+        # Gives this request its own session scope (see db.py - route
+        # handlers and their dependencies can run on different worker
+        # threads, so this can't just be "the current thread's session"),
+        # commits whatever it accumulated, rolls back on an unhandled
+        # error, and always tears it down afterward.
+        token = new_session_scope()
         try:
             response = await call_next(request)
             SessionLocal.commit()
@@ -75,7 +78,7 @@ def create_app() -> FastAPI:
             SessionLocal.rollback()
             raise
         finally:
-            SessionLocal.remove()
+            end_session_scope(token)
 
     for router in ALL_ROUTERS:
         app.include_router(router, prefix="/api")
