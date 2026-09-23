@@ -1,4 +1,4 @@
-.PHONY: run run-backend run-frontend install install-backend install-frontend test test-backend test-frontend
+.PHONY: run run-backend run-frontend install install-backend install-frontend test test-backend test-frontend test-integration
 
 run: run-backend
 
@@ -23,3 +23,8 @@ test-backend:
 
 test-frontend:
 	cd frontend && npx vitest run
+
+# Slow, and needs Docker running - builds the real image and drives
+# docker-compose.yaml, not just backend/frontend code. Not part of `test`.
+test-integration:
+	cd integration-tests && uv sync && uv run pytest

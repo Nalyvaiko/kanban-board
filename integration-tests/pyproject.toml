@@ -1,0 +1,16 @@
+[project]
+name = "kanban-integration-tests"
+version = "0.1.0"
+description = "End-to-end tests that drive `docker compose` and hit the running stack over HTTP."
+requires-python = ">=3.12"
+dependencies = [
+    "httpx>=0.28.1",
+    "pytest>=9.1.1",
+]
+
+[tool.uv]
+# Just a test suite, not an importable library - nothing to build/install.
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["."]
