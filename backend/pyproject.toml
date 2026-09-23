@@ -16,6 +16,11 @@ dependencies = [
     "uvicorn[standard]>=0.53.0",
 ]
 
+[project.optional-dependencies]
+# Only needed to point DATABASE_URL at Postgres instead of the default
+# SQLite file; `uv sync --extra postgres` (or `pip install .[postgres]`).
+postgres = ["psycopg[binary]>=3.2"]
+
 [project.scripts]
 kanban-backend = "kanban_backend:main"
 

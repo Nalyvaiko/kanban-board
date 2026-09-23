@@ -17,8 +17,11 @@ DATABASE_URL=sqlite:///./kanban.db uv run kanban-backend        # default
 DATABASE_URL=postgresql+psycopg://user:pass@host/db uv run kanban-backend
 ```
 
-Using Postgres requires installing a driver (e.g. `uv add psycopg[binary]`)
-that isn't part of this project's dependencies by default.
+Postgres needs the `psycopg` driver, which is an optional dependency group
+rather than installed by default (`uv sync --extra postgres`). The Docker
+image (`../Dockerfile`) always includes it, so switching a container to
+Postgres is just a `DATABASE_URL` change - see `../docker-compose.yml` for
+a ready-to-run example (`docker compose up`).
 
 On first run against an empty database, `src/kanban_backend/seed.py` seeds a
 demo project, users, boards, and tasks so the frontend has something to look

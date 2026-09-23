@@ -32,11 +32,14 @@ WORKDIR /app/backend
 
 # Install dependencies before copying the rest of the source, so this
 # (slow) layer is only rebuilt when pyproject.toml/uv.lock actually change.
+# --extra postgres bundles the Postgres driver alongside the default
+# SQLite support, so switching DATABASE_URL to a Postgres URL at runtime
+# doesn't need a different image.
 COPY backend/pyproject.toml backend/uv.lock ./
-RUN uv sync --locked --no-install-project --no-dev
+RUN uv sync --locked --no-install-project --no-dev --extra postgres
 
 COPY backend/ ./
-RUN uv sync --locked --no-dev
+RUN uv sync --locked --no-dev --extra postgres
 
 # main.py serves this directory at "/" (and everything under it) whenever
 # it's present - see FRONTEND_DIR in src/kanban_backend/main.py.
