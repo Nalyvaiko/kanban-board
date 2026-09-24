@@ -20,6 +20,7 @@ from .routers import (
     boards,
     comments,
     dashboard,
+    health,
     labels,
     members,
     projects,
@@ -36,6 +37,7 @@ from .store import store
 FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "static"
 
 ALL_ROUTERS = (
+    health.router,
     auth.router,
     users.router,
     projects.router,
