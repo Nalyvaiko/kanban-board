@@ -33,7 +33,7 @@ AWS account, and about $8-15/month after that.
          VpcId=<paste-vpc-id-here> \
          SubnetId=<paste-subnet-id-here> \
          SshLocation=$(curl -s ifconfig.me)/32 \
-     --capabilities CAPABILITY_IAM
+     --capabilities CAPABILITY_NAMED_IAM
    ```
 
    This takes a couple of minutes to finish.
@@ -75,15 +75,68 @@ sudo tail -f /var/log/user-data.log
 
 ## Updating after a code change
 
-The server only builds the app once, when it first starts. To pick up new
-code, get a shell on it (see above) and run:
+If you've set up automatic deploys (below), just push to `main` — it
+handles this for you. To update by hand instead:
 
 ```sh
+aws ssm start-session --target <InstanceId-from-the-outputs-table>
 cd /opt/kanban-board && git pull && docker compose up -d --build
 ```
 
 Or just delete the stack (step 6) and deploy again — that gives you a
 fresh server running the latest code.
+
+## Automatic deploys (CI/CD)
+
+`.github/workflows/ci-cd.yml` runs the backend and frontend tests, then
+the integration and end-to-end tests against a real `docker compose`
+stack, and — only if all of that passes, and only on a push to `main` —
+deploys to AWS and checks the app came back up healthy. It authenticates
+to AWS the safe way: no long-lived AWS keys stored in GitHub, just a
+role GitHub proves it's allowed to use for a few minutes at a time
+(this is called OIDC).
+
+One-time setup, before this will work:
+
+1. **Deploy the role GitHub Actions will use** (only needs to be done
+   once, ever, for this repo):
+
+   ```sh
+   aws cloudformation deploy \
+     --template-file cloudformation/github-oidc.yaml \
+     --stack-name kanban-board-github-oidc \
+     --capabilities CAPABILITY_NAMED_IAM
+   ```
+
+   If this fails with something like "OIDC provider already exists",
+   your AWS account already has one from another project — redeploy
+   with `--parameter-overrides CreateOidcProvider=false ExistingOidcProviderArn=<its ARN>`
+   instead (find it with `aws iam list-open-id-connect-providers`).
+
+2. **Get the role's ARN:**
+
+   ```sh
+   aws cloudformation describe-stacks --stack-name kanban-board-github-oidc \
+     --query 'Stacks[0].Outputs[?OutputKey==`DeployRoleArn`].OutputValue' --output text
+   ```
+
+3. **Add these as variables in your GitHub repo** (Settings → Secrets
+   and variables → Actions → Variables tab — they're not secret, so
+   variables, not secrets, are the right place):
+
+   | Variable | Value |
+   | --- | --- |
+   | `AWS_DEPLOY_ROLE_ARN` | the ARN from step 2 |
+   | `AWS_REGION` | e.g. `us-east-1` |
+   | `AWS_STACK_NAME` | `kanban-board` (or whatever you used in the quick start) |
+   | `AWS_VPC_ID` | your VPC ID from the quick start |
+   | `AWS_SUBNET_ID` | your subnet ID from the quick start |
+
+That's it — the next push to `main` will deploy automatically. If the
+app stack (`AWS_STACK_NAME`) doesn't exist yet, the workflow creates it;
+if it already exists (you ran the quick start by hand first), the
+workflow updates the running instance in place instead of replacing it,
+so its data isn't lost.
 
 ## What you're trading for the low cost
 

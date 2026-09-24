@@ -1,0 +1,205 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  One-time setup for the CI/CD pipeline (.github/workflows/ci-cd.yml):
+  an IAM role GitHub Actions can assume via OIDC - no long-lived AWS
+  access keys stored as GitHub secrets - scoped to exactly what that
+  workflow needs to deploy template.yaml's stack and update the app on
+  the running instance. Deploy this once, then put its DeployRoleArn
+  output into your GitHub repo as the AWS_DEPLOY_ROLE_ARN variable (see
+  cloudformation/README.md).
+
+Parameters:
+  GitHubOrg:
+    Type: String
+    Default: Nalyvaiko
+    Description: GitHub username or org that owns the repo.
+
+  GitHubRepo:
+    Type: String
+    Default: kanban-board
+    Description: Repo name (without the org/user prefix).
+
+  AppStackName:
+    Type: String
+    Default: kanban-board
+    Description: >
+      Must match the --stack-name you use (or will use) to deploy
+      template.yaml - this role's permissions are scoped to a stack and
+      IAM resources with this exact name.
+
+  CreateOidcProvider:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: >
+      Leave as true unless your AWS account already has a
+      token.actions.githubusercontent.com OIDC provider (from another
+      project/stack using GitHub Actions) - IAM only allows one per URL
+      per account, and creating a duplicate fails the deploy. If you
+      already have one, set this to false and fill in
+      ExistingOidcProviderArn instead.
+
+  ExistingOidcProviderArn:
+    Type: String
+    Default: ""
+    Description: Only used when CreateOidcProvider is false.
+
+Conditions:
+  ShouldCreateOidcProvider: !Equals [!Ref CreateOidcProvider, "true"]
+
+Resources:
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: ShouldCreateOidcProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList: [sts.amazonaws.com]
+      # GitHub's documented thumbprints for this provider (stable, widely
+      # published in AWS's own guides - not specific to this account).
+      ThumbprintList:
+        - 6938fd4d98bab03faadb97b34396831e3780aea1
+        - 1c58a3a8518e8759bf075b76b750d4f2df264fcd
+
+  DeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${AppStackName}-github-deploy-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !If
+                - ShouldCreateOidcProvider
+                - !Ref GitHubOidcProvider
+                - !Ref ExistingOidcProviderArn
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                # Scoped to pushes to main only - matches the workflow's
+                # deploy job, which only runs there. A PR from this repo
+                # (or anyone else's fork) cannot assume this role.
+                token.actions.githubusercontent.com:sub: !Sub "repo:${GitHubOrg}/${GitHubRepo}:ref:refs/heads/main"
+
+      Policies:
+        - PolicyName: DeployKanbanBoard
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: CloudFormationStackManagement
+                Effect: Allow
+                Action:
+                  - cloudformation:CreateStack
+                  - cloudformation:UpdateStack
+                  - cloudformation:DescribeStacks
+                  - cloudformation:DescribeStackEvents
+                  - cloudformation:DescribeStackResources
+                  - cloudformation:GetTemplate
+                  - cloudformation:CreateChangeSet
+                  - cloudformation:DescribeChangeSet
+                  - cloudformation:ExecuteChangeSet
+                  - cloudformation:DeleteChangeSet
+                  - cloudformation:ListStackResources
+                Resource: !Sub "arn:${AWS::Partition}:cloudformation:*:${AWS::AccountId}:stack/${AppStackName}/*"
+
+              # EC2 has patchy support for resource-level permissions -
+              # many of these actions (RunInstances' own dependencies
+              # aside) simply don't support a Resource restriction more
+              # specific than "*". Scoped as tightly as the API allows.
+              - Sid: Ec2Management
+                Effect: Allow
+                Action:
+                  - ec2:RunInstances
+                  - ec2:TerminateInstances
+                  - ec2:DescribeInstances
+                  - ec2:CreateTags
+                  - ec2:DeleteTags
+                  - ec2:DescribeTags
+                  - ec2:CreateSecurityGroup
+                  - ec2:DeleteSecurityGroup
+                  - ec2:DescribeSecurityGroups
+                  - ec2:AuthorizeSecurityGroupIngress
+                  - ec2:AuthorizeSecurityGroupEgress
+                  - ec2:RevokeSecurityGroupIngress
+                  - ec2:RevokeSecurityGroupEgress
+                  - ec2:AllocateAddress
+                  - ec2:ReleaseAddress
+                  - ec2:AssociateAddress
+                  - ec2:DisassociateAddress
+                  - ec2:DescribeAddresses
+                  - ec2:DescribeSubnets
+                  - ec2:DescribeVpcs
+                  - ec2:DescribeImages
+                  - ec2:DescribeAvailabilityZones
+                  - ec2:DescribeInstanceTypes
+                  - ec2:DescribeVolumes
+                  - ec2:CreateVolume
+                  - ec2:DeleteVolume
+                  - ec2:AttachVolume
+                  - ec2:DetachVolume
+                  - ec2:DescribeInstanceStatus
+                  - ec2:DescribeKeyPairs
+                Resource: "*"
+
+              - Sid: PassInstanceRoleToEc2
+                Effect: Allow
+                Action: iam:PassRole
+                Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AppStackName}-instance-role"
+                Condition:
+                  StringEquals:
+                    iam:PassedToService: ec2.amazonaws.com
+
+              - Sid: ManageInstanceRoleAndProfile
+                Effect: Allow
+                Action:
+                  - iam:CreateRole
+                  - iam:DeleteRole
+                  - iam:GetRole
+                  - iam:TagRole
+                  - iam:PutRolePolicy
+                  - iam:DeleteRolePolicy
+                  - iam:GetRolePolicy
+                  - iam:AttachRolePolicy
+                  - iam:DetachRolePolicy
+                  - iam:ListInstanceProfilesForRole
+                  - iam:ListAttachedRolePolicies
+                  - iam:ListRolePolicies
+                  - iam:CreateInstanceProfile
+                  - iam:DeleteInstanceProfile
+                  - iam:GetInstanceProfile
+                  - iam:AddRoleToInstanceProfile
+                  - iam:RemoveRoleFromInstanceProfile
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AppStackName}-instance-role"
+                  - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:instance-profile/${AppStackName}-instance-profile"
+
+              # LatestAmiId in template.yaml is an SSM-parameter-type
+              # parameter; CloudFormation resolves it using the calling
+              # principal's own permissions.
+              - Sid: ReadAmiSsmParameter
+                Effect: Allow
+                Action: ssm:GetParameter
+                Resource: !Sub "arn:${AWS::Partition}:ssm:*::parameter/aws/service/ami-amazon-linux-latest/*"
+
+              # Used post-deploy to pull the latest code and rebuild on
+              # the running instance (see ci-cd.yml) - not part of the
+              # CloudFormation stack itself.
+              - Sid: DeployAppCodeViaSsm
+                Effect: Allow
+                Action:
+                  - ssm:SendCommand
+                  - ssm:GetCommandInvocation
+                  - ssm:ListCommandInvocations
+                  - ssm:DescribeInstanceInformation
+                Resource: "*"
+
+Outputs:
+  DeployRoleArn:
+    Description: Put this in the GitHub repo as the AWS_DEPLOY_ROLE_ARN variable.
+    Value: !GetAtt DeployRole.Arn
+
+  OidcProviderArn:
+    Condition: ShouldCreateOidcProvider
+    Description: Only useful if another stack later wants CreateOidcProvider=false and this ARN as ExistingOidcProviderArn.
+    Value: !Ref GitHubOidcProvider

@@ -66,6 +66,11 @@ Resources:
   InstanceRole:
     Type: AWS::IAM::Role
     Properties:
+      # Explicit, predictable names (rather than CFN's auto-generated
+      # ones) so github-oidc.yaml's deploy role can scope iam:PassRole
+      # etc. to exactly this resource instead of needing wildcard access
+      # to all IAM roles in the account.
+      RoleName: !Sub "${AWS::StackName}-instance-role"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -80,6 +85,7 @@ Resources:
   InstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
+      InstanceProfileName: !Sub "${AWS::StackName}-instance-profile"
       Roles: [!Ref InstanceRole]
 
   SecurityGroup:
@@ -165,6 +171,10 @@ Outputs:
 
   InstancePublicIp:
     Value: !Ref AppEip
+
+  InstanceId:
+    Description: Used by the CI/CD pipeline (see .github/workflows/ci-cd.yml) to target `aws ssm send-command`.
+    Value: !Ref AppInstance
 
   SsmCommand:
     Description: Shell access with no open port and no key pair needed.
