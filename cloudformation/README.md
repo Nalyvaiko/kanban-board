@@ -1,87 +1,107 @@
-# cloudformation
+# Deploying to AWS
 
-Deploys the kanban board to AWS as cheaply as this app can reasonably run:
-one EC2 instance, running the exact `docker-compose.yaml` already in this
-repo (app + Postgres containers together, on the same box). No load
-balancer, no managed database, no VPC of its own.
+This puts the kanban board on one small AWS server (EC2 instance). It's the
+cheapest way to run it on AWS — usually free for the first year on a new
+AWS account, and about $8-15/month after that.
 
-**What this trades away for the low cost**, so you can decide if it's
-right for your use: the Postgres data lives on the instance's disk - it's
-fine across reboots (the `restart: unless-stopped` policies bring both
-containers back up), but gone if the instance itself is ever replaced or
-terminated. There's no HTTPS (the app is reachable over plain HTTP on port
-8000) since that needs a domain name to get a certificate for. There's no
-auto-scaling or failover. If you outgrow any of that, the natural next
-step is Postgres on RDS instead of in a container (durable, backed up)
-and/or the app on AWS App Runner instead of raw EC2 (managed, built-in
-HTTPS) - meaningfully more moving parts and cost, which is why this
-template doesn't default to it.
+## Quick start
 
-**Estimated cost**: ~$0-8/month on a new AWS account's free tier
-(t3.micro, 750 free hours/month for 12 months) covers the instance; the
-20GB gp3 EBS volume (~$1.60/mo) and the Elastic IP (free while attached to
-a running instance) are the main things free tier doesn't cover. Off free
-tier, budget roughly $8-15/month for a t3.micro.
+1. **Install and set up the AWS CLI.** If you don't have it yet: [install
+   instructions](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html).
+   Then run `aws configure` and enter your AWS access key.
 
-## Prerequisites
+2. **Make sure the GitHub repo is public.** The server downloads the code
+   over the internet with no login, so it needs to be a public repo.
 
-- An AWS account and the [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html), configured with credentials (`aws configure`).
-- **This repo must be public** on GitHub (or wherever `RepoUrl` points) - the instance clones it over plain HTTPS with no credentials. If it's private, either make it public, or adjust the template's `UserData` to authenticate (e.g. a fine-grained deploy token).
-- The branch/tag you pass as `GitRef` needs `Dockerfile` and `docker-compose.yaml` at its root - i.e. these changes need to be merged (or point `GitRef` at this specific branch to try it before merging).
-- Your account's default VPC ID and a public subnet in it (any VPC works, but the default VPC is the path of least resistance if you haven't set up your own):
+3. **Find two IDs you'll need** (copy-paste these commands):
 
-  ```sh
-  aws ec2 describe-vpcs --filters Name=is-default,Values=true --query 'Vpcs[0].VpcId' --output text
-  aws ec2 describe-subnets --filters Name=vpc-id,Values=<VpcId> Name=map-public-ip-on-launch,Values=true --query 'Subnets[0].SubnetId' --output text
-  ```
+   ```sh
+   # Your VPC ID
+   aws ec2 describe-vpcs --filters Name=is-default,Values=true --query 'Vpcs[0].VpcId' --output text
 
-- Optional, only if you want SSH access instead of (or alongside) SSM: an EC2 key pair (`aws ec2 create-key-pair --key-name kanban-board --query KeyMaterial --output text > kanban-board.pem && chmod 400 kanban-board.pem`).
+   # A subnet ID inside that VPC (use the VPC ID from above)
+   aws ec2 describe-subnets --filters Name=vpc-id,Values=<paste-vpc-id-here> Name=map-public-ip-on-launch,Values=true --query 'Subnets[0].SubnetId' --output text
+   ```
 
-## Deploy
+4. **Run the deploy command**, using the two IDs from step 3:
 
-```sh
-aws cloudformation deploy \
-  --template-file cloudformation/template.yaml \
-  --stack-name kanban-board \
-  --parameter-overrides \
-      VpcId=<your-vpc-id> \
-      SubnetId=<your-subnet-id> \
-      SshLocation=$(curl -s ifconfig.me)/32 \
-  --capabilities CAPABILITY_IAM
-```
+   ```sh
+   aws cloudformation deploy \
+     --template-file cloudformation/template.yaml \
+     --stack-name kanban-board \
+     --parameter-overrides \
+         VpcId=<paste-vpc-id-here> \
+         SubnetId=<paste-subnet-id-here> \
+         SshLocation=$(curl -s ifconfig.me)/32 \
+     --capabilities CAPABILITY_IAM
+   ```
 
-(`CAPABILITY_IAM` is required because the template creates an IAM role for
-SSM access - see `template.yaml`'s `InstanceRole`.) Add `KeyName=<your-key-pair-name>`
-to the overrides if you created one.
+   This takes a couple of minutes to finish.
 
-This takes a couple of minutes for the stack itself, then a few minutes
-more before the app responds - the instance's first boot installs Docker,
-clones the repo, and runs `docker compose up -d --build`, which builds the
-frontend from source. Get the URL once it's done:
+5. **Wait a few more minutes**, then get your app's web address:
 
-```sh
-aws cloudformation describe-stacks --stack-name kanban-board \
-  --query 'Stacks[0].Outputs' --output table
-```
+   ```sh
+   aws cloudformation describe-stacks --stack-name kanban-board \
+     --query 'Stacks[0].Outputs' --output table
+   ```
 
-Open `AppUrl`. If it's not responding yet, check progress via the
-`SsmCommand` output (no key pair needed) and the `BuildLogCommand` it
-prints, or SSH in with `SshCommand` if you set `KeyName`.
+   Look for `AppUrl` in the output and open it in your browser. The extra
+   wait after step 4 is because the server is still installing Docker and
+   building the app in the background — if the page doesn't load yet, just
+   wait a bit and refresh.
 
-## Updating
+6. **When you're done and want to stop paying for it:**
 
-`docker compose up -d --build` only ran once, on first boot - a new stack
-deploy alone won't pick up code changes on an existing instance. Either
-SSM/SSH in and re-run `cd /opt/kanban-board && git pull && docker compose up -d --build`,
-or delete and redeploy the stack for a clean instance on the latest `GitRef`.
+   ```sh
+   aws cloudformation delete-stack --stack-name kanban-board
+   ```
 
-## Tearing it down
+   This deletes everything the deploy created — nothing is left running
+   or billing you afterward.
+
+That's it. Everything below is background info you don't need to read to
+get it running, but is useful if something goes wrong or you want to know
+what you're paying for.
+
+## If the page doesn't load
+
+Get a shell on the server (no password or SSH key needed) and check the
+setup log:
 
 ```sh
-aws cloudformation delete-stack --stack-name kanban-board
+aws ssm start-session --target <InstanceId-from-the-outputs-table>
+sudo tail -f /var/log/user-data.log
 ```
 
-This removes the instance, its EBS volume, the Elastic IP, and the IAM
-role/security group - nothing in this template persists outside the
-stack itself (that's the durability tradeoff described above: there's no
-separate database to accidentally leave running and paying for).
+## Updating after a code change
+
+The server only builds the app once, when it first starts. To pick up new
+code, get a shell on it (see above) and run:
+
+```sh
+cd /opt/kanban-board && git pull && docker compose up -d --build
+```
+
+Or just delete the stack (step 6) and deploy again — that gives you a
+fresh server running the latest code.
+
+## What you're trading for the low cost
+
+- **The database can be lost.** The data lives on the server's disk. It
+  survives a restart, but not if the server itself ever gets replaced.
+  Fine for a demo or personal project; not something you'd want for real
+  user data.
+- **No HTTPS.** The app is plain `http://`, not `https://`. Adding HTTPS
+  needs a domain name, which this setup doesn't assume you have.
+- **One server, no backup.** If it goes down, the app goes down with it.
+
+If any of that becomes a problem, the fix is a more expensive setup:
+a real database (AWS RDS) instead of one running on the server, and/or a
+managed hosting service (AWS App Runner) instead of a plain server. Ask
+if you want that version built too.
+
+## Estimated cost
+
+Free for the first 12 months on a new AWS account (covered by AWS's free
+tier), aside from about $1.60/month for the disk. After that, roughly
+$8-15/month.
