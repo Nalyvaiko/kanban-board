@@ -29,3 +29,9 @@ docker compose up
 `DATABASE_URL` at it automatically. To point at Postgres running elsewhere
 instead, set `DATABASE_URL` yourself, e.g.
 `-e DATABASE_URL=postgresql+psycopg://user:pass@host/db`.
+
+## Deploying to AWS
+
+See `cloudformation/README.md` - a CloudFormation template that runs the
+same `docker-compose.yaml` on a single EC2 instance, plus the cost and
+durability tradeoffs that keeps it cheap.

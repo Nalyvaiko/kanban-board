@@ -1,6 +1,7 @@
 services:
   db:
     image: postgres:17-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_USER: kanban
       POSTGRES_PASSWORD: kanban
@@ -15,6 +16,7 @@ services:
 
   app:
     build: .
+    restart: unless-stopped
     ports:
       - "8000:8000"
     environment:
