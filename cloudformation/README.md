@@ -99,9 +99,3 @@ If any of that becomes a problem, the fix is a more expensive setup:
 a real database (AWS RDS) instead of one running on the server, and/or a
 managed hosting service (AWS App Runner) instead of a plain server. Ask
 if you want that version built too.
-
-## Estimated cost
-
-Free for the first 12 months on a new AWS account (covered by AWS's free
-tier), aside from about $1.60/month for the disk. After that, roughly
-$8-15/month.
