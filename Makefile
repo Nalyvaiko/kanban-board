@@ -1,4 +1,4 @@
-.PHONY: run run-backend run-frontend install install-backend install-frontend test test-backend test-frontend test-integration
+.PHONY: run run-backend run-frontend install install-backend install-frontend test test-backend test-frontend test-integration test-e2e
 
 run: run-backend
 
@@ -28,3 +28,8 @@ test-frontend:
 # docker-compose.yaml, not just backend/frontend code. Not part of `test`.
 test-integration:
 	cd integration-tests && uv sync && uv run pytest
+
+# Slow, needs Docker running - drives docker-compose.yaml through a real
+# browser (Playwright). Not part of `test`.
+test-e2e:
+	cd e2e && npm install && npx playwright install --with-deps chromium && npm test

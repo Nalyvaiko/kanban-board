@@ -1,0 +1,14 @@
+{
+  "name": "kanban-e2e",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Playwright end-to-end tests that drive the real docker-compose.yaml stack.",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^26.6.2",
+    "typescript": "^7.0.2"
+  }
+}
