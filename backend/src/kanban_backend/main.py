@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .db import SessionLocal, end_session_scope, init_db, new_session_scope
+from .errors import not_found
 from .routers import (
     activity,
     attachments,
@@ -90,6 +91,12 @@ def create_app() -> FastAPI:
 
         @app.get("/{full_path:path}", include_in_schema=False)
         async def serve_frontend(full_path: str) -> FileResponse:
+            # This catches literally any unmatched path, including ones
+            # under /api/ - without this check, a typo'd or removed API
+            # endpoint would silently return the HTML app shell (200)
+            # instead of a real 404.
+            if full_path.startswith("api/"):
+                raise not_found()
             # Any real static file (favicon.ico, robots.txt, ...) is served
             # as-is; everything else - including client-side routes like
             # /projects/abc/board, which aren't real files - falls back to
@@ -111,7 +118,7 @@ init_db()
 # between cases (see tests/conftest.py) rather than relying on this data.
 # Only seeds an empty database, so restarting the server (or pointing it at
 # an already-seeded DB) doesn't recreate the demo accounts/projects.
-if not store.users.values():
+if not store.users.any():
     seed_demo_data(store)
     SessionLocal.commit()
 SessionLocal.remove()

@@ -5,7 +5,7 @@ had (`store.boards.get(id)`, `store.tasks[id] = task`, `store.list_boards(...)`,
 cascading-delete helpers, ...), so routers don't need to know or care that
 reads and writes now go through a SQLAlchemy `Session` under the hood. Each
 collection attribute (`.users`, `.boards`, ...) is a `_Collection` backed by
-`SessionLocal`, the process's thread-scoped session (see `db.py`).
+`SessionLocal`, a session scoped to the current request (see `db.py`).
 
 Objects handed out by `.get()`/`.values()` are live, session-tracked rows:
 mutating a field on one and letting the request finish (see the commit
@@ -18,6 +18,8 @@ from __future__ import annotations
 import threading
 from uuid import uuid4
 
+from sqlalchemy import update
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import SQLModel, select
 
 from .db import SessionLocal, engine
@@ -67,6 +69,11 @@ class _Collection:
 
     def keys(self) -> list[str]:
         return [obj.id for obj in self.values()]
+
+    def any(self) -> bool:
+        """Whether the table has any rows - `bool(store.users.values())`
+        without pulling every row into memory just to check."""
+        return SessionLocal.scalars(select(self._model).limit(1)).first() is not None
 
     def __setitem__(self, id: str, value) -> None:
         SessionLocal.add(value)
@@ -168,10 +175,36 @@ class Store:
         with self._lock:
             counter = SessionLocal.get(TaskCounter, project_id)
             if counter is None:
-                counter = TaskCounter(projectId=project_id, value=0)
-                SessionLocal.add(counter)
-            counter.value += 1
-            SessionLocal.flush()
+                try:
+                    # A SAVEPOINT (not the whole request's transaction) so
+                    # a lost race below only unwinds this insert, not
+                    # anything else already done earlier in the request.
+                    with SessionLocal.begin_nested():
+                        counter = TaskCounter(projectId=project_id, value=0)
+                        SessionLocal.add(counter)
+                        SessionLocal.flush()
+                except IntegrityError:
+                    # Another concurrent request for this project's very
+                    # first task already inserted the counter row - for
+                    # our own insert to have failed on the primary key,
+                    # theirs must have committed, so it's safe to fetch it.
+                    counter = SessionLocal.get(TaskCounter, project_id)
+            # A plain `counter.value += 1` isn't atomic across requests: each
+            # request has its own uncommitted transaction (see db.py), so a
+            # second request's read wouldn't see a first request's increment
+            # until it commits at the very end - the Lock above only
+            # serializes this Python code, not the underlying reads, so two
+            # concurrent requests could both read the same value and produce
+            # duplicate task keys. An UPDATE instead takes a row lock that's
+            # held for the rest of the transaction, so a second request
+            # blocks here until the first commits, then correctly sees its
+            # incremented value.
+            SessionLocal.execute(
+                update(TaskCounter)
+                .where(TaskCounter.projectId == project_id)
+                .values(value=TaskCounter.value + 1)
+            )
+            SessionLocal.refresh(counter)
             return counter.value
 
     # -- membership -----------------------------------------------------
@@ -253,6 +286,6 @@ class Store:
                 task.assigneeId = None
 
 
-# Single process-wide instance. Its collections route to a thread-scoped
+# Single process-wide instance. Its collections route to a request-scoped
 # SQLAlchemy session (see db.py), so this is safe to share across requests.
 store = Store()

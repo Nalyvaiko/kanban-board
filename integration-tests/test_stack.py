@@ -14,6 +14,7 @@ import re
 import socket
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlsplit
 
 import httpx
@@ -115,6 +116,15 @@ def test_api_routes_are_not_swallowed_by_the_frontend_catch_all(client: httpx.Cl
     assert response.headers["content-type"].startswith("application/json")
 
 
+def test_unknown_api_path_404s_instead_of_falling_back_to_the_app_shell(client: httpx.Client) -> None:
+    # The frontend catch-all matches *any* unmatched path, including ones
+    # under /api/ - a typo'd or removed endpoint must still 404, not
+    # silently return the HTML app shell as if it were a valid response.
+    response = client.get("/api/this-route-does-not-exist")
+    assert response.status_code == 404
+    assert response.headers["content-type"].startswith("application/json")
+
+
 # -- 8: basic write path against real Postgres -------------------------------
 
 
@@ -126,6 +136,47 @@ def test_register_then_login_round_trip(client: httpx.Client) -> None:
     response = login(client, email)
     assert response.status_code == 200
     assert response.json()["user"]["email"] == email
+
+
+# -- 8b: task-number allocation is actually atomic ---------------------------
+
+
+def test_concurrent_task_creation_does_not_produce_duplicate_keys(client: httpx.Client) -> None:
+    # Regression test: each project's task numbering used to only be
+    # serialized by an in-process Python Lock, not across each request's
+    # own (uncommitted-until-the-request-ends) DB transaction, so two
+    # concurrent creates could both read the same pre-increment counter
+    # value and produce two tasks with the same key. SQLite's coarser,
+    # whole-database write lock wouldn't reliably reproduce this even if
+    # the bug came back - it needs Postgres's real row-level locking to
+    # mean anything, hence this lives here rather than in backend/tests.
+    email = unique_email()
+    token = register(client, email)
+    headers = {"Authorization": f"Bearer {token}"}
+    project = client.post("/api/projects", json={"name": "Concurrency Test"}, headers=headers).json()
+    board = client.get(f"/api/projects/{project['id']}/boards", headers=headers).json()[0]
+    column_id = client.get(f"/api/boards/{board['id']}/data", headers=headers).json()["columns"][0]["id"]
+
+    def create_task(i: int) -> httpx.Response:
+        with httpx.Client(base_url=BASE_URL, timeout=10) as own_client:
+            return own_client.post(
+                "/api/tasks",
+                json={
+                    "projectId": project["id"],
+                    "boardId": board["id"],
+                    "columnId": column_id,
+                    "title": f"Concurrent task {i}",
+                },
+                headers=headers,
+            )
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        responses = list(pool.map(create_task, range(8)))
+
+    for response in responses:
+        assert response.status_code == 201, response.text
+    keys = [response.json()["key"] for response in responses]
+    assert len(keys) == len(set(keys)), f"duplicate task keys produced under concurrency: {keys}"
 
 
 # -- 9 & 10: data survives a hard container restart --------------------------
