@@ -137,12 +137,25 @@ Resources:
           systemctl enable --now docker
           usermod -aG docker ec2-user
 
-          # AL2023's repos don't reliably ship the Compose v2 plugin;
-          # install it the way Docker's own docs recommend instead.
+          # AL2023's repos don't reliably ship the Compose v2 or buildx
+          # plugins; install both the way Docker's own docs recommend
+          # instead. (Never surfaced locally against Docker Desktop,
+          # which bundles both - `docker compose build` failing here
+          # with "compose build requires buildx" on a real instance is
+          # what caught the missing one.)
           mkdir -p /usr/local/lib/docker/cli-plugins
           curl -fSL "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64" \
             -o /usr/local/lib/docker/cli-plugins/docker-compose
           chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+
+          # buildx's release assets embed the version in the filename (no
+          # fixed-name "latest" URL like compose's), so resolve the tag
+          # via the GitHub API first.
+          BUILDX_VERSION=$(curl -fsSL https://api.github.com/repos/docker/buildx/releases/latest \
+            | grep -oP '"tag_name": "\K[^"]+')
+          curl -fSL "https://github.com/docker/buildx/releases/download/${!BUILDX_VERSION}/buildx-${!BUILDX_VERSION}.linux-amd64" \
+            -o /usr/local/lib/docker/cli-plugins/docker-buildx
+          chmod +x /usr/local/lib/docker/cli-plugins/docker-buildx
 
           # Swap - `npm run build` during the image build is memory-hungry
           # enough to OOM a t3.micro's 1GB RAM without this.
