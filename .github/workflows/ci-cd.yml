@@ -84,24 +84,33 @@ jobs:
         run: npm test
 
   # -- Deploys to AWS. Only on a real push to main (never on a PR, even
-  # from this repo) - the OIDC trust policy in cloudformation/github-oidc.yaml
-  # only allows this exact case anyway, so a PR run would just fail the
-  # credentials step, but the `if:` avoids wasting the attempt. -----------
+  # from this repo) - avoids wasting the attempt on a run that can't
+  # possibly have deploy credentials anyway. -------------------------------
   deploy:
     name: Deploy to AWS
     runs-on: ubuntu-latest
     needs: [integration-tests, e2e-tests]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     permissions:
-      id-token: write # required to mint the OIDC token configure-aws-credentials exchanges for AWS credentials
       contents: read
     steps:
       - uses: actions/checkout@v4
 
-      - name: Configure AWS credentials via OIDC (no stored AWS keys)
+      # Prefer OIDC (cloudformation/github-oidc.yaml, no stored AWS keys)
+      # if your AWS account allows creating an OIDC provider - some
+      # accounts, notably ones an AWS setup wizard creates inside an AWS
+      # Organization, have a Service Control Policy that explicitly
+      # blocks iam:CreateOpenIDConnectProvider account-wide, which is
+      # what forced the access-key fallback below (see
+      # cloudformation/github-deploy-user.yaml and README.md). To switch
+      # back to OIDC: replace this step with configure-aws-credentials'
+      # role-to-assume + aws-region, add `id-token: write` to this job's
+      # permissions above, and drop the two secrets below.
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ vars.AWS_REGION }}
 
       - name: Deploy CloudFormation stack (infrastructure)

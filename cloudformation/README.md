@@ -91,46 +91,68 @@ fresh server running the latest code.
 `.github/workflows/ci-cd.yml` runs the backend and frontend tests, then
 the integration and end-to-end tests against a real `docker compose`
 stack, and — only if all of that passes, and only on a push to `main` —
-deploys to AWS and checks the app came back up healthy. It authenticates
-to AWS the safe way: no long-lived AWS keys stored in GitHub, just a
-role GitHub proves it's allowed to use for a few minutes at a time
-(this is called OIDC).
+deploys to AWS and checks the app came back up healthy.
 
-One-time setup, before this will work:
+It authenticates with a plain IAM access key stored as GitHub secrets.
+That's not the ideal way to do this - a long-lived key that doesn't
+expire is a real, if small, security downgrade compared to the
+alternative (OIDC: GitHub proves who it is and gets a credential that's
+only valid for a few minutes, nothing stored). The workflow defaults to
+access keys because that alternative needs your AWS account to allow
+creating an OIDC provider, and **some accounts don't**: any account
+created through a guided "project" setup wizard may belong to an AWS
+Organization whose Service Control Policy explicitly blocks
+`iam:CreateOpenIDConnectProvider` account-wide - no permission inside
+the account can override that, only someone with access to the
+*management* account (a separate, higher-level account) editing or
+removing that policy can. If you don't have that access - and if you
+didn't set this AWS account up as part of an organization yourself,
+you probably don't - the access-key path below is what actually works.
 
-1. **Deploy the role GitHub Actions will use** (only needs to be done
-   once, ever, for this repo):
+**If your account does allow it**, prefer OIDC instead: deploy
+`cloudformation/github-oidc.yaml` (see the comment at the top of
+`ci-cd.yml`'s deploy job for the couple of one-line changes that
+switches it over) rather than following the steps below.
+
+One-time setup for the access-key path, before automatic deploys will work:
+
+1. **Create the IAM user GitHub Actions will use** (only needs to be
+   done once, ever, for this repo):
 
    ```sh
    aws cloudformation deploy \
-     --template-file cloudformation/github-oidc.yaml \
-     --stack-name kanban-board-github-oidc \
+     --template-file cloudformation/github-deploy-user.yaml \
+     --stack-name kanban-board-github-deploy-user \
      --capabilities CAPABILITY_NAMED_IAM
    ```
 
-   If this fails with something like "OIDC provider already exists",
-   your AWS account already has one from another project — redeploy
-   with `--parameter-overrides CreateOidcProvider=false ExistingOidcProviderArn=<its ARN>`
-   instead (find it with `aws iam list-open-id-connect-providers`).
-
-2. **Get the role's ARN:**
+2. **Create an access key for that user.** Deliberately not something
+   CloudFormation does for you - a stack output stays readable by
+   anyone who can read the stack for as long as it exists, a bad place
+   for a secret to live even briefly. This instead prints it exactly
+   once, right here:
 
    ```sh
-   aws cloudformation describe-stacks --stack-name kanban-board-github-oidc \
-     --query 'Stacks[0].Outputs[?OutputKey==`DeployRoleArn`].OutputValue' --output text
+   aws iam create-access-key --user-name kanban-board-github-deploy-user
    ```
 
-3. **Add these as variables in your GitHub repo** (Settings → Secrets
-   and variables → Actions → Variables tab — they're not secret, so
-   variables, not secrets, are the right place):
+   Copy the `AccessKeyId` and `SecretAccessKey` from the output now -
+   you cannot retrieve the secret again later (you'd have to delete
+   this key and create a new one).
 
-   | Variable | Value |
-   | --- | --- |
-   | `AWS_DEPLOY_ROLE_ARN` | the ARN from step 2 |
-   | `AWS_REGION` | e.g. `us-east-1` |
-   | `AWS_STACK_NAME` | `kanban-board` (or whatever you used in the quick start) |
-   | `AWS_VPC_ID` | your VPC ID from the quick start |
-   | `AWS_SUBNET_ID` | your subnet ID from the quick start |
+3. **Add these to your GitHub repo** (Settings → Secrets and variables
+   → Actions): `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` on the
+   **Secrets** tab (these two are genuinely sensitive), the rest on the
+   **Variables** tab:
+
+   | Name | Tab | Value |
+   | --- | --- | --- |
+   | `AWS_ACCESS_KEY_ID` | Secret | from step 2 |
+   | `AWS_SECRET_ACCESS_KEY` | Secret | from step 2 |
+   | `AWS_REGION` | Variable | e.g. `us-east-1` |
+   | `AWS_STACK_NAME` | Variable | `kanban-board` (or whatever you used in the quick start) |
+   | `AWS_VPC_ID` | Variable | your VPC ID from the quick start |
+   | `AWS_SUBNET_ID` | Variable | your subnet ID from the quick start |
 
 That's it — the next push to `main` will deploy automatically. If the
 app stack (`AWS_STACK_NAME`) doesn't exist yet, the workflow creates it;

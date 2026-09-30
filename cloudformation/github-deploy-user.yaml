@@ -1,0 +1,149 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Fallback one-time setup for the CI/CD pipeline (.github/workflows/ci-cd.yml)
+  when github-oidc.yaml doesn't work - some AWS accounts (notably ones
+  created through a guided "project" setup wizard) belong to an AWS
+  Organization whose Service Control Policy explicitly denies
+  iam:CreateOpenIDConnectProvider, which no permission inside the account
+  can override. This creates a plain IAM user instead: same permissions
+  as github-oidc.yaml's role, just reached with a long-lived access key
+  stored as GitHub secrets rather than a short-lived OIDC token. Prefer
+  github-oidc.yaml if your account allows it - a static key is a real,
+  if small, security downgrade (it doesn't expire, and it isn't scoped to
+  only pushes on main the way the OIDC trust policy is).
+
+Parameters:
+  AppStackName:
+    Type: String
+    Default: kanban-board
+    Description: >
+      Must match the --stack-name you use (or will use) to deploy
+      template.yaml - this user's permissions are scoped to a stack and
+      IAM resources with this exact name.
+
+Resources:
+  DeployUser:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: !Sub "${AppStackName}-github-deploy-user"
+      Policies:
+        - PolicyName: DeployKanbanBoard
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: CloudFormationStackManagement
+                Effect: Allow
+                Action:
+                  - cloudformation:CreateStack
+                  - cloudformation:UpdateStack
+                  - cloudformation:DescribeStacks
+                  - cloudformation:DescribeStackEvents
+                  - cloudformation:DescribeStackResources
+                  - cloudformation:GetTemplate
+                  - cloudformation:CreateChangeSet
+                  - cloudformation:DescribeChangeSet
+                  - cloudformation:ExecuteChangeSet
+                  - cloudformation:DeleteChangeSet
+                  - cloudformation:ListStackResources
+                Resource: !Sub "arn:${AWS::Partition}:cloudformation:*:${AWS::AccountId}:stack/${AppStackName}/*"
+
+              # EC2 has patchy support for resource-level permissions -
+              # many of these actions (RunInstances' own dependencies
+              # aside) simply don't support a Resource restriction more
+              # specific than "*". Scoped as tightly as the API allows.
+              - Sid: Ec2Management
+                Effect: Allow
+                Action:
+                  - ec2:RunInstances
+                  - ec2:TerminateInstances
+                  - ec2:DescribeInstances
+                  - ec2:CreateTags
+                  - ec2:DeleteTags
+                  - ec2:DescribeTags
+                  - ec2:CreateSecurityGroup
+                  - ec2:DeleteSecurityGroup
+                  - ec2:DescribeSecurityGroups
+                  - ec2:AuthorizeSecurityGroupIngress
+                  - ec2:AuthorizeSecurityGroupEgress
+                  - ec2:RevokeSecurityGroupIngress
+                  - ec2:RevokeSecurityGroupEgress
+                  - ec2:AllocateAddress
+                  - ec2:ReleaseAddress
+                  - ec2:AssociateAddress
+                  - ec2:DisassociateAddress
+                  - ec2:DescribeAddresses
+                  - ec2:DescribeSubnets
+                  - ec2:DescribeVpcs
+                  - ec2:DescribeImages
+                  - ec2:DescribeAvailabilityZones
+                  - ec2:DescribeInstanceTypes
+                  - ec2:DescribeVolumes
+                  - ec2:CreateVolume
+                  - ec2:DeleteVolume
+                  - ec2:AttachVolume
+                  - ec2:DetachVolume
+                  - ec2:DescribeInstanceStatus
+                  - ec2:DescribeKeyPairs
+                Resource: "*"
+
+              - Sid: PassInstanceRoleToEc2
+                Effect: Allow
+                Action: iam:PassRole
+                Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AppStackName}-instance-role"
+                Condition:
+                  StringEquals:
+                    iam:PassedToService: ec2.amazonaws.com
+
+              - Sid: ManageInstanceRoleAndProfile
+                Effect: Allow
+                Action:
+                  - iam:CreateRole
+                  - iam:DeleteRole
+                  - iam:GetRole
+                  - iam:TagRole
+                  - iam:PutRolePolicy
+                  - iam:DeleteRolePolicy
+                  - iam:GetRolePolicy
+                  - iam:AttachRolePolicy
+                  - iam:DetachRolePolicy
+                  - iam:ListInstanceProfilesForRole
+                  - iam:ListAttachedRolePolicies
+                  - iam:ListRolePolicies
+                  - iam:CreateInstanceProfile
+                  - iam:DeleteInstanceProfile
+                  - iam:GetInstanceProfile
+                  - iam:AddRoleToInstanceProfile
+                  - iam:RemoveRoleFromInstanceProfile
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AppStackName}-instance-role"
+                  - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:instance-profile/${AppStackName}-instance-profile"
+
+              # LatestAmiId in template.yaml is an SSM-parameter-type
+              # parameter; CloudFormation resolves it using the calling
+              # principal's own permissions.
+              - Sid: ReadAmiSsmParameter
+                Effect: Allow
+                Action: ssm:GetParameter
+                Resource: !Sub "arn:${AWS::Partition}:ssm:*::parameter/aws/service/ami-amazon-linux-latest/*"
+
+              # Used post-deploy to pull the latest code and rebuild on
+              # the running instance (see ci-cd.yml) - not part of the
+              # CloudFormation stack itself.
+              - Sid: DeployAppCodeViaSsm
+                Effect: Allow
+                Action:
+                  - ssm:SendCommand
+                  - ssm:GetCommandInvocation
+                  - ssm:ListCommandInvocations
+                  - ssm:DescribeInstanceInformation
+                Resource: "*"
+
+Outputs:
+  DeployUserName:
+    Description: >
+      Create the actual access key from this yourself (aws iam
+      create-access-key --user-name <this value>) rather than through
+      CloudFormation - a stack output is visible to anyone who can read
+      the stack for as long as it exists, which is a bad place for a
+      secret to live even briefly.
+    Value: !Ref DeployUser
