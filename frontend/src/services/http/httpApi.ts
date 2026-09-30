@@ -24,7 +24,17 @@ import type {
   User,
 } from "../types";
 
-const BASE_URL = import.meta.env["VITE_API_BASE_URL"] ?? "http://localhost:8000/api";
+// VITE_API_BASE_URL is resolved at build time (Vite inlines it into the
+// bundle), not at container/page-load time - so it can't be "the host
+// this page happens to be served from" for a production build baked
+// once and deployed anywhere. Default instead on import.meta.env.DEV:
+// in dev (`vite dev`, frontend and backend on different ports) an
+// absolute localhost URL is correct; in a production build, a relative
+// path is - it resolves against whatever origin actually served the
+// page, which is always right here since the backend serves this
+// frontend itself (see backend/src/kanban_backend/main.py).
+const BASE_URL =
+  import.meta.env["VITE_API_BASE_URL"] ?? (import.meta.env.DEV ? "http://localhost:8000/api" : "/api");
 const TOKEN_KEY = "kanban_auth_token";
 
 function getToken(): string | null {
