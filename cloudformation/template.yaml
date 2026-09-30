@@ -107,7 +107,7 @@ Resources:
       SecurityGroupEgress:
         - IpProtocol: "-1"
           CidrIp: 0.0.0.0/0
-          Description: Needed to pull the AMI's updates, clone the repo, and pull the Postgres image.
+          Description: Needed to pull OS updates, clone the repo, and pull the Postgres image.
 
   AppInstance:
     Type: AWS::EC2::Instance
