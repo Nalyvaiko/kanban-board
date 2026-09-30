@@ -131,7 +131,14 @@ Resources:
           # principal's own permissions.
           - Sid: ReadAmiSsmParameter
             Effect: Allow
-            Action: ssm:GetParameter
+            # CloudFormation resolves an AWS::SSM::Parameter::Value<...>
+            # template parameter with the *plural* GetParameters API
+            # call, not GetParameter - two distinct IAM actions. Granting
+            # both: found the hard way (a real AccessDenied deploying
+            # template.yaml) that singular alone isn't enough.
+            Action:
+              - ssm:GetParameter
+              - ssm:GetParameters
             Resource: !Sub "arn:${AWS::Partition}:ssm:*::parameter/aws/service/ami-amazon-linux-latest/*"
 
           # Used post-deploy to pull the latest code and rebuild on the

@@ -176,10 +176,17 @@ Resources:
 
               # LatestAmiId in template.yaml is an SSM-parameter-type
               # parameter; CloudFormation resolves it using the calling
-              # principal's own permissions.
+              # principal's own permissions - and does so with the
+              # *plural* GetParameters API call, not GetParameter (two
+              # distinct IAM actions). Granting both: found the hard way
+              # (a real AccessDenied deploying template.yaml, via
+              # github-deploy-user.yaml's identical policy) that singular
+              # alone isn't enough.
               - Sid: ReadAmiSsmParameter
                 Effect: Allow
-                Action: ssm:GetParameter
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParameters
                 Resource: !Sub "arn:${AWS::Partition}:ssm:*::parameter/aws/service/ami-amazon-linux-latest/*"
 
               # Used post-deploy to pull the latest code and rebuild on
