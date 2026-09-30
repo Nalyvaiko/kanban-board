@@ -26,117 +26,125 @@ Resources:
     Type: AWS::IAM::User
     Properties:
       UserName: !Sub "${AppStackName}-github-deploy-user"
-      Policies:
-        - PolicyName: DeployKanbanBoard
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Sid: CloudFormationStackManagement
-                Effect: Allow
-                Action:
-                  - cloudformation:CreateStack
-                  - cloudformation:UpdateStack
-                  - cloudformation:DescribeStacks
-                  - cloudformation:DescribeStackEvents
-                  - cloudformation:DescribeStackResources
-                  - cloudformation:GetTemplate
-                  - cloudformation:CreateChangeSet
-                  - cloudformation:DescribeChangeSet
-                  - cloudformation:ExecuteChangeSet
-                  - cloudformation:DeleteChangeSet
-                  - cloudformation:ListStackResources
-                Resource: !Sub "arn:${AWS::Partition}:cloudformation:*:${AWS::AccountId}:stack/${AppStackName}/*"
 
-              # EC2 has patchy support for resource-level permissions -
-              # many of these actions (RunInstances' own dependencies
-              # aside) simply don't support a Resource restriction more
-              # specific than "*". Scoped as tightly as the API allows.
-              - Sid: Ec2Management
-                Effect: Allow
-                Action:
-                  - ec2:RunInstances
-                  - ec2:TerminateInstances
-                  - ec2:DescribeInstances
-                  - ec2:CreateTags
-                  - ec2:DeleteTags
-                  - ec2:DescribeTags
-                  - ec2:CreateSecurityGroup
-                  - ec2:DeleteSecurityGroup
-                  - ec2:DescribeSecurityGroups
-                  - ec2:AuthorizeSecurityGroupIngress
-                  - ec2:AuthorizeSecurityGroupEgress
-                  - ec2:RevokeSecurityGroupIngress
-                  - ec2:RevokeSecurityGroupEgress
-                  - ec2:AllocateAddress
-                  - ec2:ReleaseAddress
-                  - ec2:AssociateAddress
-                  - ec2:DisassociateAddress
-                  - ec2:DescribeAddresses
-                  - ec2:DescribeSubnets
-                  - ec2:DescribeVpcs
-                  - ec2:DescribeImages
-                  - ec2:DescribeAvailabilityZones
-                  - ec2:DescribeInstanceTypes
-                  - ec2:DescribeVolumes
-                  - ec2:CreateVolume
-                  - ec2:DeleteVolume
-                  - ec2:AttachVolume
-                  - ec2:DetachVolume
-                  - ec2:DescribeInstanceStatus
-                  - ec2:DescribeKeyPairs
-                Resource: "*"
+  # A user's own inline policy is capped at 2048 bytes - this policy is
+  # ~2.5KB, so it has to be a separate customer-managed policy instead
+  # (6144-byte limit) and attached to the user, rather than inlined
+  # directly on the AWS::IAM::User resource above.
+  DeployPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub "${AppStackName}-github-deploy-policy"
+      Users: [!Ref DeployUser]
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: CloudFormationStackManagement
+            Effect: Allow
+            Action:
+              - cloudformation:CreateStack
+              - cloudformation:UpdateStack
+              - cloudformation:DescribeStacks
+              - cloudformation:DescribeStackEvents
+              - cloudformation:DescribeStackResources
+              - cloudformation:GetTemplate
+              - cloudformation:CreateChangeSet
+              - cloudformation:DescribeChangeSet
+              - cloudformation:ExecuteChangeSet
+              - cloudformation:DeleteChangeSet
+              - cloudformation:ListStackResources
+            Resource: !Sub "arn:${AWS::Partition}:cloudformation:*:${AWS::AccountId}:stack/${AppStackName}/*"
 
-              - Sid: PassInstanceRoleToEc2
-                Effect: Allow
-                Action: iam:PassRole
-                Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AppStackName}-instance-role"
-                Condition:
-                  StringEquals:
-                    iam:PassedToService: ec2.amazonaws.com
+          # EC2 has patchy support for resource-level permissions - many
+          # of these actions (RunInstances' own dependencies aside)
+          # simply don't support a Resource restriction more specific
+          # than "*". Scoped as tightly as the API allows.
+          - Sid: Ec2Management
+            Effect: Allow
+            Action:
+              - ec2:RunInstances
+              - ec2:TerminateInstances
+              - ec2:DescribeInstances
+              - ec2:CreateTags
+              - ec2:DeleteTags
+              - ec2:DescribeTags
+              - ec2:CreateSecurityGroup
+              - ec2:DeleteSecurityGroup
+              - ec2:DescribeSecurityGroups
+              - ec2:AuthorizeSecurityGroupIngress
+              - ec2:AuthorizeSecurityGroupEgress
+              - ec2:RevokeSecurityGroupIngress
+              - ec2:RevokeSecurityGroupEgress
+              - ec2:AllocateAddress
+              - ec2:ReleaseAddress
+              - ec2:AssociateAddress
+              - ec2:DisassociateAddress
+              - ec2:DescribeAddresses
+              - ec2:DescribeSubnets
+              - ec2:DescribeVpcs
+              - ec2:DescribeImages
+              - ec2:DescribeAvailabilityZones
+              - ec2:DescribeInstanceTypes
+              - ec2:DescribeVolumes
+              - ec2:CreateVolume
+              - ec2:DeleteVolume
+              - ec2:AttachVolume
+              - ec2:DetachVolume
+              - ec2:DescribeInstanceStatus
+              - ec2:DescribeKeyPairs
+            Resource: "*"
 
-              - Sid: ManageInstanceRoleAndProfile
-                Effect: Allow
-                Action:
-                  - iam:CreateRole
-                  - iam:DeleteRole
-                  - iam:GetRole
-                  - iam:TagRole
-                  - iam:PutRolePolicy
-                  - iam:DeleteRolePolicy
-                  - iam:GetRolePolicy
-                  - iam:AttachRolePolicy
-                  - iam:DetachRolePolicy
-                  - iam:ListInstanceProfilesForRole
-                  - iam:ListAttachedRolePolicies
-                  - iam:ListRolePolicies
-                  - iam:CreateInstanceProfile
-                  - iam:DeleteInstanceProfile
-                  - iam:GetInstanceProfile
-                  - iam:AddRoleToInstanceProfile
-                  - iam:RemoveRoleFromInstanceProfile
-                Resource:
-                  - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AppStackName}-instance-role"
-                  - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:instance-profile/${AppStackName}-instance-profile"
+          - Sid: PassInstanceRoleToEc2
+            Effect: Allow
+            Action: iam:PassRole
+            Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AppStackName}-instance-role"
+            Condition:
+              StringEquals:
+                iam:PassedToService: ec2.amazonaws.com
 
-              # LatestAmiId in template.yaml is an SSM-parameter-type
-              # parameter; CloudFormation resolves it using the calling
-              # principal's own permissions.
-              - Sid: ReadAmiSsmParameter
-                Effect: Allow
-                Action: ssm:GetParameter
-                Resource: !Sub "arn:${AWS::Partition}:ssm:*::parameter/aws/service/ami-amazon-linux-latest/*"
+          - Sid: ManageInstanceRoleAndProfile
+            Effect: Allow
+            Action:
+              - iam:CreateRole
+              - iam:DeleteRole
+              - iam:GetRole
+              - iam:TagRole
+              - iam:PutRolePolicy
+              - iam:DeleteRolePolicy
+              - iam:GetRolePolicy
+              - iam:AttachRolePolicy
+              - iam:DetachRolePolicy
+              - iam:ListInstanceProfilesForRole
+              - iam:ListAttachedRolePolicies
+              - iam:ListRolePolicies
+              - iam:CreateInstanceProfile
+              - iam:DeleteInstanceProfile
+              - iam:GetInstanceProfile
+              - iam:AddRoleToInstanceProfile
+              - iam:RemoveRoleFromInstanceProfile
+            Resource:
+              - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AppStackName}-instance-role"
+              - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:instance-profile/${AppStackName}-instance-profile"
 
-              # Used post-deploy to pull the latest code and rebuild on
-              # the running instance (see ci-cd.yml) - not part of the
-              # CloudFormation stack itself.
-              - Sid: DeployAppCodeViaSsm
-                Effect: Allow
-                Action:
-                  - ssm:SendCommand
-                  - ssm:GetCommandInvocation
-                  - ssm:ListCommandInvocations
-                  - ssm:DescribeInstanceInformation
-                Resource: "*"
+          # LatestAmiId in template.yaml is an SSM-parameter-type
+          # parameter; CloudFormation resolves it using the calling
+          # principal's own permissions.
+          - Sid: ReadAmiSsmParameter
+            Effect: Allow
+            Action: ssm:GetParameter
+            Resource: !Sub "arn:${AWS::Partition}:ssm:*::parameter/aws/service/ami-amazon-linux-latest/*"
+
+          # Used post-deploy to pull the latest code and rebuild on the
+          # running instance (see ci-cd.yml) - not part of the
+          # CloudFormation stack itself.
+          - Sid: DeployAppCodeViaSsm
+            Effect: Allow
+            Action:
+              - ssm:SendCommand
+              - ssm:GetCommandInvocation
+              - ssm:ListCommandInvocations
+              - ssm:DescribeInstanceInformation
+            Resource: "*"
 
 Outputs:
   DeployUserName:
