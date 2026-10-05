@@ -27,6 +27,15 @@ Parameters:
       template.yaml - this role's permissions are scoped to a stack and
       IAM resources with this exact name.
 
+  EcrRepositoryName:
+    Type: String
+    Default: kanban-board
+    Description: >
+      Must match ecr.yaml's RepositoryName - this is the one shared
+      registry both the dev and prod stacks use (not scoped to
+      AppStackName, unlike everything else in this policy, since it's
+      the same repo regardless of which environment this role deploys).
+
   CreateOidcProvider:
     Type: String
     Default: "true"
@@ -190,9 +199,9 @@ Resources:
                   - ssm:GetParameters
                 Resource: !Sub "arn:${AWS::Partition}:ssm:*::parameter/aws/service/ami-amazon-linux-latest/*"
 
-              # Used post-deploy to pull the latest code and rebuild on
-              # the running instance (see ci-cd.yml) - not part of the
-              # CloudFormation stack itself.
+              # Used post-deploy to pull the latest code and the
+              # already-built image on the running instance (see
+              # ci-cd.yml) - not part of the CloudFormation stack itself.
               - Sid: DeployAppCodeViaSsm
                 Effect: Allow
                 Action:
@@ -201,6 +210,30 @@ Resources:
                   - ssm:ListCommandInvocations
                   - ssm:DescribeInstanceInformation
                 Resource: "*"
+
+              # Pushes the image ci-cd.yml's build job produces. Only
+              # the dev deploy role's build job actually does this
+              # (production only ever pulls an image dev already
+              # pushed - see promote-to-production.yml) but granting it
+              # here too is harmless and keeps this template identical
+              # for both environments rather than adding a parameter
+              # just to omit it.
+              - Sid: PushImageToEcr
+                Effect: Allow
+                Action: ecr:GetAuthorizationToken
+                Resource: "*"
+
+              - Sid: PushImageToEcrRepository
+                Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchGetImage
+                  - ecr:PutImage
+                  - ecr:InitiateLayerUpload
+                  - ecr:UploadLayerPart
+                  - ecr:CompleteLayerUpload
+                Resource: !Sub "arn:${AWS::Partition}:ecr:*:${AWS::AccountId}:repository/${EcrRepositoryName}"
 
 Outputs:
   DeployRoleArn:

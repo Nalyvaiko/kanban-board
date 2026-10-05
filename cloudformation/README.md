@@ -83,6 +83,10 @@ aws ssm start-session --target <InstanceId-from-the-outputs-table>
 cd /opt/kanban-board && git pull && docker compose up -d --build
 ```
 
+(This builds from source on the server itself, unlike the automatic
+path below, which pulls an already-built image - fine for a one-off by
+hand, but not what CI does.)
+
 Or just delete the stack (step 6) and deploy again — that gives you a
 fresh server running the latest code.
 
@@ -90,10 +94,18 @@ fresh server running the latest code.
 
 `.github/workflows/ci-cd.yml` runs the backend and frontend tests, then
 the integration and end-to-end tests against a real `docker compose`
-stack, and — only if all of that passes — deploys to AWS and checks the
-app came back up healthy. A push to `main` does this for the `dev`
-environment set up below; production (see "Two environments" further
-down) only deploys when someone manually runs the workflow.
+stack, and — only if all of that passes — builds the app image, tags
+it `YYYYMMDD-HHMMSS-shortsha` (e.g. `20260818-163457-83242da`) and
+pushes it to a shared ECR repository, then deploys to AWS by pulling
+that exact image onto the server and checks the app came back up
+healthy. Building once and deploying the same, already-tested image
+everywhere (rather than rebuilding from source on every environment)
+is also what makes the promotion step below exact: production ends up
+running the literal bytes dev already ran, not a fresh rebuild from
+the same source that could in principle come out different. A push to
+`main` does the build-and-deploy for the `dev` environment set up
+below; production (see "Two environments" further down) only deploys
+when someone manually runs a separate workflow.
 
 It authenticates with a plain IAM access key stored as GitHub secrets.
 That's not the ideal way to do this - a long-lived key that doesn't
@@ -118,7 +130,17 @@ switches it over) rather than following the steps below.
 
 One-time setup for the access-key path, before automatic deploys will work:
 
-1. **Create the IAM user GitHub Actions will use** (only needs to be
+1. **Create the shared ECR repository** (once, ever, for this repo -
+   both dev and production pull images from this same repo; see
+   "Two environments" below):
+
+   ```sh
+   aws cloudformation deploy \
+     --template-file cloudformation/ecr.yaml \
+     --stack-name kanban-board-ecr
+   ```
+
+2. **Create the IAM user GitHub Actions will use** (only needs to be
    done once, ever, for this repo):
 
    ```sh
@@ -128,7 +150,7 @@ One-time setup for the access-key path, before automatic deploys will work:
      --capabilities CAPABILITY_NAMED_IAM
    ```
 
-2. **Create an access key for that user.** Deliberately not something
+3. **Create an access key for that user.** Deliberately not something
    CloudFormation does for you - a stack output stays readable by
    anyone who can read the stack for as long as it exists, a bad place
    for a secret to live even briefly. This instead prints it exactly
@@ -142,7 +164,7 @@ One-time setup for the access-key path, before automatic deploys will work:
    you cannot retrieve the secret again later (you'd have to delete
    this key and create a new one).
 
-3. **Add these to GitHub's `dev` Environment** (repo → Settings →
+4. **Add these to GitHub's `dev` Environment** (repo → Settings →
    Environments → New environment, named exactly `dev` → then its own
    Secrets and Variables sections, scoped to just this environment -
    not the repo-wide Secrets/Variables tab): `AWS_ACCESS_KEY_ID` and
@@ -151,12 +173,13 @@ One-time setup for the access-key path, before automatic deploys will work:
 
    | Name | Kind | Value |
    | --- | --- | --- |
-   | `AWS_ACCESS_KEY_ID` | Secret | from step 2 |
-   | `AWS_SECRET_ACCESS_KEY` | Secret | from step 2 |
+   | `AWS_ACCESS_KEY_ID` | Secret | from step 3 |
+   | `AWS_SECRET_ACCESS_KEY` | Secret | from step 3 |
    | `AWS_REGION` | Variable | e.g. `us-east-1` |
    | `AWS_STACK_NAME` | Variable | `kanban-board` (or whatever you used in the quick start) |
    | `AWS_VPC_ID` | Variable | your VPC ID from the quick start |
    | `AWS_SUBNET_ID` | Variable | your subnet ID from the quick start |
+   | `ECR_REPOSITORY_NAME` | Variable | `kanban-board` (must match step 1's repo name) |
 
 That's it — the next push to `main` will deploy to dev automatically.
 If the app stack (`AWS_STACK_NAME`) doesn't exist yet, the workflow
@@ -168,12 +191,14 @@ replacing it, so its data isn't lost.
 
 By default there's just the one environment above (dev). To add a
 second, independent copy for production - its own EC2 instance, its
-own database, nothing in common with dev except the AWS account - the
+own database, nothing in common with dev except the AWS account and
+the ECR repository from step 1 above (production never pushes to it,
+only ever pulls an image dev already pushed - see step 4 below) - the
 pattern is: deploy everything from the quick start and the section
 above a second time, under different names, into a second GitHub
 Environment.
 
-1. **Create the prod IAM user**, same as `dev`'s step 1 but with a
+1. **Create the prod IAM user**, same as `dev`'s step 2 but with a
    different stack name and `AppStackName`:
 
    ```sh
@@ -212,15 +237,16 @@ Environment.
    environment's settings page if you want that.
 
 4. **Promote to production**: repo → Actions tab → "Promote to
-   Production" → "Run workflow" → Run workflow. This doesn't re-deploy
-   whatever main's tip happens to be - it asks the dev server what
-   commit it's actually running right now (and confirms dev is
-   healthy), then deploys exactly that commit to `kanban-board-prod`,
-   which the workflow creates on this first run, exactly like dev's
-   first deploy did. That guarantees production only ever receives a
-   commit dev has already proven out - if someone pushed to `main`
-   after dev's last deploy but dev hasn't redeployed yet, that newer
-   commit is not what goes to production.
+   Production" → "Run workflow" → Run workflow. This doesn't rebuild
+   anything or re-deploy whatever main's tip happens to be - it asks
+   the dev server which image it's actually running right now (and
+   confirms dev is healthy), then pulls and deploys that exact image -
+   the same bytes dev already ran, not a fresh build of the same
+   source - onto `kanban-board-prod`, which the workflow creates on
+   this first run, exactly like dev's first deploy did. That guarantees
+   production only ever receives an image dev has already proven out -
+   if someone pushed to `main` after dev's last deploy but dev hasn't
+   redeployed yet, that newer build is not what goes to production.
 
 From here, pushes to `main` keep dev continuously up to date; production
 only moves when you explicitly run the workflow, and the two can never

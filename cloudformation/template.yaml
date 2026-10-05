@@ -59,6 +59,13 @@ Parameters:
     Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
     Description: Do not override - resolves to the current Amazon Linux 2023 AMI for the stack's region.
 
+  EcrRepositoryName:
+    Type: String
+    Default: kanban-board
+    Description: >
+      Must match ecr.yaml's RepositoryName - the instance pulls the app
+      image from this shared repository (see .github/scripts/deploy-app.sh).
+
 Conditions:
   HasKeyName: !Not [!Equals [!Ref KeyName, ""]]
 
@@ -81,6 +88,26 @@ Resources:
       # inbound port and no key pair needed.
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      # Lets the instance itself `docker pull` the app image straight
+      # from ECR (deploy-app.sh) using its own instance-profile
+      # credentials - no stored keys on the instance, same reasoning as
+      # SSM above.
+      Policies:
+        - PolicyName: PullAppImageFromEcr
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: EcrAuth
+                Effect: Allow
+                Action: ecr:GetAuthorizationToken
+                Resource: "*"
+              - Sid: EcrPull
+                Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchGetImage
+                Resource: !Sub "arn:${AWS::Partition}:ecr:*:${AWS::AccountId}:repository/${EcrRepositoryName}"
 
   InstanceProfile:
     Type: AWS::IAM::InstanceProfile

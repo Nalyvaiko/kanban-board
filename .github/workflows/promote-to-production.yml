@@ -1,12 +1,13 @@
 name: Promote to Production
 
 # Deliberately separate from ci-cd.yml's deploy-dev, not another job in
-# that workflow: "promote" means ship the exact commit dev is already
-# running (proven out by dev traffic), not re-run the test suite
-# against whatever main's tip happens to be at click-time and deploy
-# that instead - a job triggered by workflow_dispatch only ever sees
-# its own trigger's ref, so it can't express "whatever dev is running"
-# without a step like the one below that asks dev directly.
+# that workflow: "promote" means ship the exact image dev is already
+# running (already built, already pushed, already proven out by dev
+# traffic) - never rebuild, and never deploy whatever main's tip
+# happens to be at click-time instead. A job triggered by
+# workflow_dispatch only ever sees its own trigger's ref, so it can't
+# express "whatever dev is running" without a step like the one below
+# that asks dev directly.
 on:
   workflow_dispatch: {}
 
@@ -14,12 +15,13 @@ permissions:
   contents: read
 
 jobs:
-  get-dev-commit:
-    name: Check dev's current commit
+  get-dev-state:
+    name: Check dev's current commit and image
     runs-on: ubuntu-latest
     environment: dev
     outputs:
-      commit_sha: ${{ steps.commit.outputs.sha }}
+      commit_sha: ${{ steps.state.outputs.sha }}
+      image: ${{ steps.state.outputs.image }}
     steps:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -28,16 +30,24 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ vars.AWS_REGION }}
 
-      - name: Find the dev instance and its running commit
-        id: commit
+      - name: Find the dev instance and what it's currently running
+        id: state
         run: |
           INSTANCE_ID=$(aws cloudformation describe-stacks --stack-name "${{ vars.AWS_STACK_NAME }}" \
             --query "Stacks[0].Outputs[?OutputKey=='InstanceId'].OutputValue" --output text)
+          # shellcheck disable=SC2016
+          # The $(...) below are intentionally literal - they're JSON
+          # string content describing commands for the remote instance
+          # to run once sent, not something this runner's shell expands.
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids "$INSTANCE_ID" \
             --document-name AWS-RunShellScript \
-            --comment "Read dev's current commit for a promote-to-production run" \
-            --parameters '{"commands":["git -C /opt/kanban-board rev-parse HEAD"]}' \
+            --comment "Read dev's current commit and image for a promote-to-production run" \
+            --parameters '{"commands":[
+              "set -euo pipefail",
+              "echo SHA=$(git -C /opt/kanban-board rev-parse HEAD)",
+              "echo IMAGE=$(sed -n \"s/^APP_IMAGE=//p\" /opt/kanban-board/.env)"
+            ]}' \
             --query 'Command.CommandId' --output text)
           for i in $(seq 1 30); do
             STATUS=$(aws ssm get-command-invocation --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" \
@@ -46,20 +56,25 @@ jobs:
               break
             fi
             if [ "$STATUS" = "Failed" ] || [ "$STATUS" = "Cancelled" ] || [ "$STATUS" = "TimedOut" ]; then
-              echo "::error::Could not read dev's current commit (command $STATUS)"
+              echo "::error::Could not read dev's current state (command $STATUS) - stderr follows:"
+              aws ssm get-command-invocation --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" \
+                --query StandardErrorContent --output text
               exit 1
             fi
-            echo "Waiting for dev's commit to be readable... ($i/30)"
+            echo "Waiting for dev's state to be readable... ($i/30)"
             sleep 5
           done
-          SHA=$(aws ssm get-command-invocation --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" \
-            --query StandardOutputContent --output text | tr -d '[:space:]')
-          if [ -z "$SHA" ]; then
-            echo "::error::Got an empty commit SHA from dev"
+          OUTPUT=$(aws ssm get-command-invocation --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" \
+            --query StandardOutputContent --output text)
+          SHA=$(echo "$OUTPUT" | sed -n 's/^SHA=//p' | tr -d '[:space:]')
+          IMAGE=$(echo "$OUTPUT" | sed -n 's/^IMAGE=//p' | tr -d '[:space:]')
+          if [ -z "$SHA" ] || [ -z "$IMAGE" ]; then
+            echo "::error::Got an empty commit SHA or image reference from dev (SHA='$SHA' IMAGE='$IMAGE')"
             exit 1
           fi
-          echo "Dev is running $SHA"
+          echo "Dev is running $IMAGE (commit $SHA)"
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
 
       - name: Confirm dev is actually healthy right now
         run: |
@@ -68,19 +83,21 @@ jobs:
           curl -fsS "$APP_URL/api/health"
 
   deploy-to-prod:
-    name: Deploy dev's commit to production
+    name: Deploy dev's image to production
     runs-on: ubuntu-latest
-    needs: get-dev-commit
+    needs: get-dev-state
     environment: production
     permissions:
       contents: read
     steps:
-      # Checks out the exact commit dev is running - not this workflow's
-      # trigger ref - so the CloudFormation template and deploy script
-      # used below match what's about to be deployed.
+      # Checks out the exact commit dev is running - not this
+      # workflow's trigger ref - so the CloudFormation template used
+      # below matches what's about to be deployed. The app image itself
+      # is NOT rebuilt from this checkout; deploy-app.sh pulls the
+      # already-pushed image dev reported above.
       - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.get-dev-commit.outputs.commit_sha }}
+          ref: ${{ needs.get-dev-state.outputs.commit_sha }}
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -123,17 +140,18 @@ jobs:
           echo "::error::SSM agent on ${{ steps.stack.outputs.instance_id }} never came online."
           exit 1
 
-      - name: Deploy the app code (git fetch + docker compose up --build)
+      - name: Deploy the app code (git fetch + docker compose pull/up)
         id: deploy-command
         run: |
           SCRIPT=$(sed \
-            -e "s#__GIT_SHA__#${{ needs.get-dev-commit.outputs.commit_sha }}#g" \
+            -e "s#__GIT_SHA__#${{ needs.get-dev-state.outputs.commit_sha }}#g" \
             -e "s#__GITHUB_REPOSITORY__#${{ github.repository }}#g" \
+            -e "s#__IMAGE__#${{ needs.get-dev-state.outputs.image }}#g" \
             .github/scripts/deploy-app.sh)
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids "${{ steps.stack.outputs.instance_id }}" \
             --document-name AWS-RunShellScript \
-            --comment "Promote ${{ needs.get-dev-commit.outputs.commit_sha }} to production" \
+            --comment "Promote ${{ needs.get-dev-state.outputs.image }} to production" \
             --parameters "$(jq -n --arg script "$SCRIPT" '{commands: [$script]}')" \
             --query 'Command.CommandId' --output text)
           echo "command_id=$COMMAND_ID" >> "$GITHUB_OUTPUT"

@@ -1,0 +1,66 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  One-time, shared container registry for the app image - deployed once,
+  not per environment. Both the dev and production app stacks pull from
+  this same repository (see ci-cd.yml's build job, which is the only
+  thing that ever pushes to it, and cloudformation/README.md's "Two
+  environments" section for how production gets dev's image without
+  pushing anything itself).
+
+Parameters:
+  RepositoryName:
+    Type: String
+    Default: kanban-board
+    Description: >
+      Referenced by name (not by this stack's outputs) from
+      github-deploy-user.yaml/github-oidc.yaml and template.yaml's IAM
+      policies, and from ci-cd.yml - keep this consistent with those if
+      you change it.
+
+Resources:
+  Repository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Ref RepositoryName
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      # Tags are unique timestamp+shortsha strings (see ci-cd.yml) and
+      # never meant to be reused, so blocking overwrites costs nothing
+      # and rules out a tag silently starting to point at different
+      # content.
+      ImageTagMutability: IMMUTABLE
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "description": "Expire untagged images after 1 day",
+                "selection": {
+                  "tagStatus": "untagged",
+                  "countType": "sinceImagePushed",
+                  "countUnit": "days",
+                  "countNumber": 1
+                },
+                "action": { "type": "expire" }
+              },
+              {
+                "rulePriority": 2,
+                "description": "Keep only the 20 most recent tagged images",
+                "selection": {
+                  "tagStatus": "tagged",
+                  "tagPatternList": ["*"],
+                  "countType": "imageCountMoreThan",
+                  "countNumber": 20
+                },
+                "action": { "type": "expire" }
+              }
+            ]
+          }
+
+Outputs:
+  RepositoryUri:
+    Value: !GetAtt Repository.RepositoryUri
+
+  RepositoryArn:
+    Value: !GetAtt Repository.Arn

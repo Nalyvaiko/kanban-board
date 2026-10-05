@@ -15,6 +15,12 @@ services:
       retries: 5
 
   app:
+    # `image:` alongside `build:` lets this one file serve both uses:
+    # locally/in CI tests, `docker compose up --build` builds from
+    # source and tags it as APP_IMAGE's default; in deploy-app.sh,
+    # APP_IMAGE is set to a specific pushed ECR tag and `docker compose
+    # pull` fetches exactly that, never building on the instance.
+    image: ${APP_IMAGE:-kanban-board-app}
     build: .
     restart: unless-stopped
     ports:

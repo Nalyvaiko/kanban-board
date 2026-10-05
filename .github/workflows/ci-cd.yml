@@ -85,21 +85,68 @@ jobs:
         working-directory: e2e
         run: npm test
 
+  # -- Builds the app image once every test job above has passed and
+  # pushes it to the shared ECR repo (cloudformation/ecr.yaml),
+  # tagged YYYYMMDD-HHMMSS-shortsha so it's traceable back to a commit
+  # and sorts chronologically. Runs only on a push to main, same as
+  # deploy-dev below - no point building, let alone pushing, an image
+  # for a PR that isn't going anywhere. deploy-dev then pulls this
+  # exact tag rather than building on the instance (and
+  # promote-to-production.yml later reads this same tag back off the
+  # running dev instance to send on to production unchanged).
+  build-and-push-image:
+    name: Build and push image to ECR
+    runs-on: ubuntu-latest
+    needs: [integration-tests, e2e-tests]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment: dev
+    permissions:
+      contents: read
+    outputs:
+      image: ${{ steps.build.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Log in to ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push
+        id: build
+        env:
+          REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          REPOSITORY: ${{ vars.ECR_REPOSITORY_NAME }}
+        run: |
+          TAG="$(date -u +%Y%m%d-%H%M%S)-$(git rev-parse --short HEAD)"
+          IMAGE="$REGISTRY/$REPOSITORY:$TAG"
+          docker build -t "$IMAGE" .
+          docker push "$IMAGE"
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+
   # -- Deploys to the dev environment automatically on a push to main
   # (never on a PR, even from this repo - avoids wasting the attempt on
-  # a run that can't possibly have deploy credentials anyway).
-  # `environment: dev` pins this job to that GitHub Environment's own
-  # secrets/variables - see cloudformation/README.md's "Two
-  # environments" section for the one-time AWS + GitHub setup this
-  # depends on. Production is a separate, manually-triggered workflow
-  # (promote-to-production.yml) rather than another job here - it
-  # deploys whatever commit dev is actually running, not just whatever
-  # main's tip happens to be at the time, which a job in *this* workflow
-  # can't express (it only ever sees its own trigger's ref). ----------
+  # a run that can't possibly have deploy credentials anyway). Pulls
+  # the image build-and-push-image just pushed rather than building on
+  # the instance - see deploy-app.sh. `environment: dev` pins this job
+  # to that GitHub Environment's own secrets/variables - see
+  # cloudformation/README.md's "Two environments" section for the
+  # one-time AWS + GitHub setup this depends on. Production is a
+  # separate, manually-triggered workflow (promote-to-production.yml)
+  # rather than another job here - it deploys whatever image dev is
+  # actually running, not just whatever main's tip happens to be at the
+  # time, which a job in *this* workflow can't express (it only ever
+  # sees its own trigger's ref). ------------------------------------
   deploy-dev:
     name: Deploy to AWS (dev)
     runs-on: ubuntu-latest
-    needs: [integration-tests, e2e-tests]
+    needs: build-and-push-image
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     environment: dev
     permissions:
@@ -158,12 +205,13 @@ jobs:
           echo "::error::SSM agent on ${{ steps.stack.outputs.instance_id }} never came online."
           exit 1
 
-      - name: Deploy the app code (git fetch + docker compose up --build)
+      - name: Deploy the app code (git fetch + docker compose pull/up)
         id: deploy-command
         run: |
           SCRIPT=$(sed \
             -e "s#__GIT_SHA__#${{ github.sha }}#g" \
             -e "s#__GITHUB_REPOSITORY__#${{ github.repository }}#g" \
+            -e "s#__IMAGE__#${{ needs.build-and-push-image.outputs.image }}#g" \
             .github/scripts/deploy-app.sh)
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids "${{ steps.stack.outputs.instance_id }}" \
