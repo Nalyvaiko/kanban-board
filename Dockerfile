@@ -24,9 +24,16 @@ RUN npm run build \
 # ---------------------------------------------------------------------------
 FROM python:3.12-slim AS backend
 
-# uv publishes itself as a static binary; copying it in is the documented
-# way to get it into an image without a pip/curl bootstrap step.
-COPY --from=ghcr.io/astral-sh/uv:0.12 /uv /uvx /usr/local/bin/
+# Installed via uv's own script rather than copying the binary out of a
+# ghcr.io image (the previous approach) - that pull hit a real, if
+# transient, 429 rate-limit from ghcr.io in CI. This still depends on
+# GitHub's release CDN (where the script fetches the actual binary
+# from), but no longer on ghcr.io's separate container-registry pull
+# path specifically.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
 
 WORKDIR /app/backend
 
