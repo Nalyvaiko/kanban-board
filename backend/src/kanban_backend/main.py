@@ -31,6 +31,7 @@ from .routers import (
 )
 from .seed import seed_demo_data
 from .store import store
+from .telemetry import setup_telemetry
 
 # Populated by the Docker build (see ../../Dockerfile), which copies the
 # frontend's static build output here. Absent in local dev, where the
@@ -56,6 +57,8 @@ ALL_ROUTERS = (
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Mini Jira API", version="1.0.0")
+
+    setup_telemetry(app)
 
     app.add_middleware(
         CORSMiddleware,

@@ -57,6 +57,7 @@ src/kanban_backend/
   seed.py          Demo data seeding (only runs against an empty database)
   activity_log.py  Shared helper for writing to the project activity feed
   viewmodels.py    Composes "with relation" view models (e.g. comment + author)
+  telemetry.py     OpenTelemetry setup (see "Telemetry" below)
   routers/         One module per resource (auth, projects, tasks, ...)
 tests/             pytest suite (see below)
 ```
@@ -77,6 +78,23 @@ serves it directly at `/`, with any unmatched path falling back to its
 `index.html` so client-side routing works. In local dev, `static/` doesn't
 exist, so this is skipped entirely and only the API is served; run the
 frontend separately (`cd ../frontend && npm run dev`).
+
+## Telemetry
+
+Every request is traced (FastAPI + SQLAlchemy auto-instrumentation via
+OpenTelemetry - see `src/kanban_backend/telemetry.py`). Each span carries
+three resource attributes identifying this deployment:
+
+| Attribute | Env var | Default | Set by |
+| --- | --- | --- | --- |
+| `service.name` | `OTEL_SERVICE_NAME` | `kanban-backend` | - |
+| `deployment.environment` | `ENVIRONMENT` | `development` | `.github/scripts/deploy-app.sh` (`dev` or `production`) |
+| `service.version` | `APP_VERSION` | `unknown` | same script, from the deployed image's tag |
+
+Spans are only actually exported if `OTEL_EXPORTER_OTLP_ENDPOINT` is set
+(standard OTLP env var) - point it at a collector to see them anywhere.
+With nothing set (local dev, tests, CI), instrumentation still runs but
+has nowhere to send spans, so it doesn't try.
 
 ## Testing
 

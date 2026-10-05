@@ -27,6 +27,13 @@ services:
       - "8000:8000"
     environment:
       DATABASE_URL: postgresql+psycopg://kanban:kanban@db:5432/kanban
+      # Identify this deployment in telemetry (see
+      # backend/src/kanban_backend/telemetry.py). deploy-app.sh sets
+      # both of these for a real deploy; the defaults here cover local
+      # `docker compose up` and the integration/e2e test stacks, which
+      # never set them.
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      APP_VERSION: ${APP_VERSION:-unknown}
     depends_on:
       db:
         condition: service_healthy
