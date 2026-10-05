@@ -4,11 +4,6 @@ on:
   push:
     branches: [main]
   pull_request:
-  # Promotes the current main to production - click "Run workflow" in
-  # the Actions tab (and pick the "main" branch there). Deliberately
-  # separate from the push trigger: dev deploys automatically on every
-  # push to main, production only on this explicit action.
-  workflow_dispatch: {}
 
 # Least-privilege default; the deploy jobs grant whatever extra they
 # need (currently nothing beyond this, since they authenticate with
@@ -96,13 +91,11 @@ jobs:
   # `environment: dev` pins this job to that GitHub Environment's own
   # secrets/variables - see cloudformation/README.md's "Two
   # environments" section for the one-time AWS + GitHub setup this
-  # depends on. deploy-prod below is the same job in every way except
-  # its trigger and which environment it targets - kept as two
-  # explicit jobs rather than one parameterized by a matrix, since a
-  # matrix entry's `if:` can't see which trigger fired the run (only
-  # step-level `if:` can see `matrix.*`), which would have meant
-  # threading the environment-selection logic through every step
-  # instead of once here. ---------------------------------------------
+  # depends on. Production is a separate, manually-triggered workflow
+  # (promote-to-production.yml) rather than another job here - it
+  # deploys whatever commit dev is actually running, not just whatever
+  # main's tip happens to be at the time, which a job in *this* workflow
+  # can't express (it only ever sees its own trigger's ref). ----------
   deploy-dev:
     name: Deploy to AWS (dev)
     runs-on: ubuntu-latest
@@ -124,114 +117,6 @@ jobs:
       # back to OIDC: replace this step with configure-aws-credentials'
       # role-to-assume + aws-region, and add `id-token: write` to this
       # job's permissions above.
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ vars.AWS_REGION }}
-
-      - name: Deploy CloudFormation stack (infrastructure)
-        run: |
-          aws cloudformation deploy \
-            --template-file cloudformation/template.yaml \
-            --stack-name "${{ vars.AWS_STACK_NAME }}" \
-            --parameter-overrides \
-                VpcId="${{ vars.AWS_VPC_ID }}" \
-                SubnetId="${{ vars.AWS_SUBNET_ID }}" \
-            --capabilities CAPABILITY_NAMED_IAM \
-            --no-fail-on-empty-changeset
-
-      - name: Read stack outputs
-        id: stack
-        run: |
-          OUTPUTS=$(aws cloudformation describe-stacks --stack-name "${{ vars.AWS_STACK_NAME }}" --query 'Stacks[0].Outputs')
-          echo "instance_id=$(echo "$OUTPUTS" | jq -r '.[] | select(.OutputKey=="InstanceId") | .OutputValue')" >> "$GITHUB_OUTPUT"
-          echo "app_url=$(echo "$OUTPUTS" | jq -r '.[] | select(.OutputKey=="AppUrl") | .OutputValue')" >> "$GITHUB_OUTPUT"
-
-      - name: Wait for the SSM agent to come online
-        run: |
-          for i in $(seq 1 30); do
-            STATUS=$(aws ssm describe-instance-information \
-              --filters "Key=InstanceIds,Values=${{ steps.stack.outputs.instance_id }}" \
-              --query 'InstanceInformationList[0].PingStatus' --output text 2>/dev/null || echo "")
-            if [ "$STATUS" = "Online" ]; then
-              echo "SSM agent online."
-              exit 0
-            fi
-            echo "Waiting for the SSM agent to come online... ($i/30)"
-            sleep 10
-          done
-          echo "::error::SSM agent on ${{ steps.stack.outputs.instance_id }} never came online."
-          exit 1
-
-      - name: Deploy the app code (git fetch + docker compose up --build)
-        id: deploy-command
-        run: |
-          SCRIPT=$(sed \
-            -e "s#__GIT_SHA__#${{ github.sha }}#g" \
-            -e "s#__GITHUB_REPOSITORY__#${{ github.repository }}#g" \
-            .github/scripts/deploy-app.sh)
-          COMMAND_ID=$(aws ssm send-command \
-            --instance-ids "${{ steps.stack.outputs.instance_id }}" \
-            --document-name AWS-RunShellScript \
-            --comment "Deploy ${{ github.sha }}" \
-            --parameters "$(jq -n --arg script "$SCRIPT" '{commands: [$script]}')" \
-            --query 'Command.CommandId' --output text)
-          echo "command_id=$COMMAND_ID" >> "$GITHUB_OUTPUT"
-
-      - name: Wait for the deploy command to finish
-        run: |
-          for i in $(seq 1 60); do
-            STATUS=$(aws ssm get-command-invocation \
-              --command-id "${{ steps.deploy-command.outputs.command_id }}" \
-              --instance-id "${{ steps.stack.outputs.instance_id }}" \
-              --query Status --output text 2>/dev/null || echo Pending)
-            echo "Deploy status: $STATUS ($i/60)"
-            case "$STATUS" in
-              Success) exit 0 ;;
-              Failed|Cancelled|TimedOut)
-                echo "::error::Deploy command $STATUS - stderr follows:"
-                aws ssm get-command-invocation \
-                  --command-id "${{ steps.deploy-command.outputs.command_id }}" \
-                  --instance-id "${{ steps.stack.outputs.instance_id }}" \
-                  --query StandardErrorContent --output text
-                exit 1
-                ;;
-            esac
-            sleep 10
-          done
-          echo "::error::Deploy command never finished within 10 minutes."
-          exit 1
-
-      - name: Health check
-        run: |
-          for i in $(seq 1 30); do
-            if curl -fsS "${{ steps.stack.outputs.app_url }}/api/health"; then
-              echo "Healthy."
-              exit 0
-            fi
-            echo "Waiting for ${{ steps.stack.outputs.app_url }}/api/health to respond... ($i/30)"
-            sleep 10
-          done
-          echo "::error::App never became healthy at ${{ steps.stack.outputs.app_url }}/api/health"
-          exit 1
-
-  # -- Same as deploy-dev in every way except the trigger (manual only)
-  # and which GitHub Environment it targets - see the comment above
-  # deploy-dev for why this is a second explicit job rather than one
-  # job parameterized by a matrix. ------------------------------------
-  deploy-prod:
-    name: Deploy to AWS (prod)
-    runs-on: ubuntu-latest
-    needs: [integration-tests, e2e-tests]
-    if: github.event_name == 'workflow_dispatch'
-    environment: production
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:

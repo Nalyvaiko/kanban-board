@@ -211,13 +211,16 @@ Environment.
    click "Run workflow" at all - look for "Required reviewers" on the
    environment's settings page if you want that.
 
-4. **Promote to production**: repo → Actions tab → "CI/CD" → "Run
-   workflow" → pick the `main` branch → Run workflow. This runs every
-   test again (not just re-deploys whatever dev already tested - a
-   push to `main` between when dev last deployed and now would
-   otherwise go to production untested) and only then deploys - to
-   `kanban-board-prod`, which the workflow creates on this first run,
-   exactly like dev's first deploy did.
+4. **Promote to production**: repo → Actions tab → "Promote to
+   Production" → "Run workflow" → Run workflow. This doesn't re-deploy
+   whatever main's tip happens to be - it asks the dev server what
+   commit it's actually running right now (and confirms dev is
+   healthy), then deploys exactly that commit to `kanban-board-prod`,
+   which the workflow creates on this first run, exactly like dev's
+   first deploy did. That guarantees production only ever receives a
+   commit dev has already proven out - if someone pushed to `main`
+   after dev's last deploy but dev hasn't redeployed yet, that newer
+   commit is not what goes to production.
 
 From here, pushes to `main` keep dev continuously up to date; production
 only moves when you explicitly run the workflow, and the two can never
