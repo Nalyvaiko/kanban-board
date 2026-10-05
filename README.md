@@ -35,3 +35,9 @@ instead, set `DATABASE_URL` yourself, e.g.
 See `cloudformation/README.md` - a CloudFormation template that runs the
 same `docker-compose.yaml` on a single EC2 instance, plus the cost and
 durability tradeoffs that keeps it cheap.
+
+## Observability
+
+See `observability/README.md` - an OpenTelemetry Collector, Prometheus,
+Loki, Tempo, and Grafana, as a separate Compose project you can point
+this app's traces at.

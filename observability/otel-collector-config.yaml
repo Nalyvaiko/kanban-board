@@ -1,0 +1,43 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch: {}
+
+exporters:
+  otlp_grpc/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+
+  # Loki's own OTLP endpoint (native since Loki 3.x) rather than the
+  # collector's dedicated `loki` exporter, which depends on the same
+  # thing and is the less current of the two options.
+  otlp_http/loki:
+    endpoint: http://loki:3100/otlp
+
+  # Pull-based: Prometheus scrapes this (see prometheus.yml), rather
+  # than the collector pushing via remote-write - no special flag
+  # needed on the Prometheus side this way.
+  prometheus:
+    endpoint: 0.0.0.0:8889
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp_grpc/tempo]
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [prometheus]
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp_http/loki]

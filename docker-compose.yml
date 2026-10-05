@@ -34,6 +34,19 @@ services:
       # never set them.
       ENVIRONMENT: ${ENVIRONMENT:-development}
       APP_VERSION: ${APP_VERSION:-unknown}
+      # Unset by default - telemetry.py only exports spans when this is
+      # set (see its own comment). To send to the (separate, optional)
+      # stack in ../observability/: OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318
+      # - a host port, not a container name, deliberately: that stack
+      # is its own independent Compose project, so this one shouldn't
+      # need to know its network to even start (this file has to keep
+      # working standalone, e.g. in CI's integration/e2e test jobs,
+      # whether or not that stack happens to be running).
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+    # Lets OTEL_EXPORTER_OTLP_ENDPOINT above resolve host.docker.internal
+    # on Linux too (Docker Desktop already does this without help).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       db:
         condition: service_healthy
