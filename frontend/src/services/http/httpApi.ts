@@ -62,7 +62,14 @@ async function request<T>(
   path: string,
   opts: { body?: unknown; query?: Query } = {},
 ): Promise<T> {
-  const url = new URL(`${BASE_URL}${path}`);
+  // `new URL(str)` with no second argument requires `str` itself to be
+  // absolute - it throws for the relative "/api"-style BASE_URL a
+  // production build uses. Passing the page's own origin as the base
+  // fixes that (and is a no-op when BASE_URL is already absolute, e.g.
+  // in dev - a base is ignored once the first argument parses as a
+  // complete URL on its own).
+  const origin = typeof window === "undefined" ? undefined : window.location.origin;
+  const url = new URL(`${BASE_URL}${path}`, origin);
   for (const [key, value] of Object.entries(opts.query ?? {})) {
     if (value !== undefined) url.searchParams.set(key, value);
   }
