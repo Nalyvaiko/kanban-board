@@ -90,8 +90,10 @@ fresh server running the latest code.
 
 `.github/workflows/ci-cd.yml` runs the backend and frontend tests, then
 the integration and end-to-end tests against a real `docker compose`
-stack, and — only if all of that passes, and only on a push to `main` —
-deploys to AWS and checks the app came back up healthy.
+stack, and — only if all of that passes — deploys to AWS and checks the
+app came back up healthy. A push to `main` does this for the `dev`
+environment set up below; production (see "Two environments" further
+down) only deploys when someone manually runs the workflow.
 
 It authenticates with a plain IAM access key stored as GitHub secrets.
 That's not the ideal way to do this - a long-lived key that doesn't
@@ -140,12 +142,14 @@ One-time setup for the access-key path, before automatic deploys will work:
    you cannot retrieve the secret again later (you'd have to delete
    this key and create a new one).
 
-3. **Add these to your GitHub repo** (Settings → Secrets and variables
-   → Actions): `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` on the
-   **Secrets** tab (these two are genuinely sensitive), the rest on the
-   **Variables** tab:
+3. **Add these to GitHub's `dev` Environment** (repo → Settings →
+   Environments → New environment, named exactly `dev` → then its own
+   Secrets and Variables sections, scoped to just this environment -
+   not the repo-wide Secrets/Variables tab): `AWS_ACCESS_KEY_ID` and
+   `AWS_SECRET_ACCESS_KEY` as secrets (these two are genuinely
+   sensitive), the rest as variables:
 
-   | Name | Tab | Value |
+   | Name | Kind | Value |
    | --- | --- | --- |
    | `AWS_ACCESS_KEY_ID` | Secret | from step 2 |
    | `AWS_SECRET_ACCESS_KEY` | Secret | from step 2 |
@@ -154,11 +158,70 @@ One-time setup for the access-key path, before automatic deploys will work:
    | `AWS_VPC_ID` | Variable | your VPC ID from the quick start |
    | `AWS_SUBNET_ID` | Variable | your subnet ID from the quick start |
 
-That's it — the next push to `main` will deploy automatically. If the
-app stack (`AWS_STACK_NAME`) doesn't exist yet, the workflow creates it;
-if it already exists (you ran the quick start by hand first), the
-workflow updates the running instance in place instead of replacing it,
-so its data isn't lost.
+That's it — the next push to `main` will deploy to dev automatically.
+If the app stack (`AWS_STACK_NAME`) doesn't exist yet, the workflow
+creates it; if it already exists (you ran the quick start by hand
+first), the workflow updates the running instance in place instead of
+replacing it, so its data isn't lost.
+
+## Two environments: dev and production
+
+By default there's just the one environment above (dev). To add a
+second, independent copy for production - its own EC2 instance, its
+own database, nothing in common with dev except the AWS account - the
+pattern is: deploy everything from the quick start and the section
+above a second time, under different names, into a second GitHub
+Environment.
+
+1. **Create the prod IAM user**, same as `dev`'s step 1 but with a
+   different stack name and `AppStackName`:
+
+   ```sh
+   aws cloudformation deploy \
+     --template-file cloudformation/github-deploy-user.yaml \
+     --stack-name kanban-board-prod-github-deploy-user \
+     --parameter-overrides AppStackName=kanban-board-prod \
+     --capabilities CAPABILITY_NAMED_IAM
+   ```
+
+   This user's permissions are scoped to a stack literally named
+   `kanban-board-prod` - it has no access to the `kanban-board` (dev)
+   stack at all, by construction, not just by convention.
+
+2. **Create its access key**, same as before:
+
+   ```sh
+   aws iam create-access-key --user-name kanban-board-prod-github-deploy-user
+   ```
+
+3. **Create a second GitHub Environment named `production`**, with its
+   own secrets/variables - same names as `dev`'s, different values:
+
+   | Name | Kind | Value |
+   | --- | --- | --- |
+   | `AWS_ACCESS_KEY_ID` | Secret | from step 2 |
+   | `AWS_SECRET_ACCESS_KEY` | Secret | from step 2 |
+   | `AWS_REGION` | Variable | same as `dev`, unless you want prod in a different region |
+   | `AWS_STACK_NAME` | Variable | `kanban-board-prod` |
+   | `AWS_VPC_ID` | Variable | same as `dev`'s, unless you want full network isolation too |
+   | `AWS_SUBNET_ID` | Variable | same as `dev`'s, unless you want full network isolation too |
+
+   Optional extra gate: a GitHub Environment can require a reviewer to
+   approve each run before it proceeds, on top of someone having to
+   click "Run workflow" at all - look for "Required reviewers" on the
+   environment's settings page if you want that.
+
+4. **Promote to production**: repo → Actions tab → "CI/CD" → "Run
+   workflow" → pick the `main` branch → Run workflow. This runs every
+   test again (not just re-deploys whatever dev already tested - a
+   push to `main` between when dev last deployed and now would
+   otherwise go to production untested) and only then deploys - to
+   `kanban-board-prod`, which the workflow creates on this first run,
+   exactly like dev's first deploy did.
+
+From here, pushes to `main` keep dev continuously up to date; production
+only moves when you explicitly run the workflow, and the two can never
+interfere with each other's AWS resources.
 
 ## What you're trading for the low cost
 
