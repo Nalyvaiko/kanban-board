@@ -26,6 +26,15 @@ exporters:
   # needed on the Prometheus side this way.
   prometheus:
     endpoint: 0.0.0.0:8889
+    # Without this, deployment.environment/service.version (and
+    # service.name) only show up on the separate `target_info` metric,
+    # not on boards_created_total etc. themselves - which makes
+    # filtering by them in Grafana (see grafana/provisioning/
+    # dashboards/) a join instead of a plain label match. With it,
+    # every resource attribute becomes a label on every metric
+    # directly.
+    resource_to_telemetry_conversion:
+      enabled: true
 
 service:
   pipelines:
