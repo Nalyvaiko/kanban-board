@@ -19,6 +19,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from .errors import forbidden, unauthorized
 from .models import ProjectMember, Role, User
 from .store import Store, store
+from .telemetry import active_sessions
 
 _PBKDF2_ITERATIONS = 200_000
 
@@ -46,11 +47,13 @@ def verify_password(password: str, stored: str) -> bool:
 def issue_token(user_id: str, db: Store = store) -> str:
     token = secrets.token_urlsafe(32)
     db.tokens[token] = user_id
+    active_sessions.add(1)
     return token
 
 
 def revoke_token(token: str, db: Store = store) -> None:
-    db.tokens.pop(token, None)
+    if db.tokens.pop(token, None) is not None:
+        active_sessions.add(-1)
 
 
 def _user_from_credentials(

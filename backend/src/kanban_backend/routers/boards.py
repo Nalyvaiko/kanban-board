@@ -16,6 +16,7 @@ from ..models import (
 )
 from ..seed import create_default_board
 from ..store import new_id, store
+from ..telemetry import boards_created
 from .projects import get_project_or_404
 
 router = APIRouter(tags=["Boards & Columns"])
@@ -48,7 +49,9 @@ def create_board(
 ) -> Board:
     get_project_or_404(projectId)
     auth.require_admin(projectId, user)
-    return create_default_board(store, projectId, input.name)
+    board = create_default_board(store, projectId, input.name)
+    boards_created.add(1)
+    return board
 
 
 @router.delete("/boards/{boardId}", status_code=204)

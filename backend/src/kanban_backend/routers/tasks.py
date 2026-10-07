@@ -16,6 +16,7 @@ from ..models import (
     utcnow_iso,
 )
 from ..store import new_id, store
+from ..telemetry import task_creation_failures, tasks_created
 from .boards import get_board_or_404, get_column_or_404
 from .projects import get_project_or_404
 
@@ -69,35 +70,45 @@ def list_tasks(
 
 @router.post("/tasks", status_code=201, response_model=Task)
 def create_task(input: CreateTaskInput, user: User = Depends(auth.get_current_user)) -> Task:
-    project = get_project_or_404(input.projectId)
-    auth.require_contributor(project.id, user)
-    get_board_or_404(input.boardId)
-    column = get_column_or_404(input.columnId)
+    # Counts every failed attempt to create a task - permission/404s from
+    # the lookups below included, since those are still a caller trying
+    # and failing to create a task, not just this endpoint's own
+    # validation - not just the request-title-is-blank case.
+    try:
+        project = get_project_or_404(input.projectId)
+        auth.require_contributor(project.id, user)
+        get_board_or_404(input.boardId)
+        column = get_column_or_404(input.columnId)
 
-    title = input.title.strip()
-    if not title:
-        raise ApiError(400, "Task title is required")
+        title = input.title.strip()
+        if not title:
+            raise ApiError(400, "Task title is required")
 
-    now = utcnow_iso()
-    task = Task(
-        id=new_id("task"),
-        key=f"{project.key}-{store.next_task_number(project.id)}",
-        projectId=project.id,
-        boardId=input.boardId,
-        columnId=input.columnId,
-        title=title,
-        description=input.description or "",
-        type=input.type,
-        priority=input.priority,
-        assigneeId=input.assigneeId,
-        labelIds=input.labelIds,
-        dueDate=input.dueDate,
-        position=len(store.list_tasks_for_column(column.id)),
-        createdBy=user.id,
-        createdAt=now,
-        updatedAt=now,
-    )
-    store.tasks[task.id] = task
+        now = utcnow_iso()
+        task = Task(
+            id=new_id("task"),
+            key=f"{project.key}-{store.next_task_number(project.id)}",
+            projectId=project.id,
+            boardId=input.boardId,
+            columnId=input.columnId,
+            title=title,
+            description=input.description or "",
+            type=input.type,
+            priority=input.priority,
+            assigneeId=input.assigneeId,
+            labelIds=input.labelIds,
+            dueDate=input.dueDate,
+            position=len(store.list_tasks_for_column(column.id)),
+            createdBy=user.id,
+            createdAt=now,
+            updatedAt=now,
+        )
+        store.tasks[task.id] = task
+    except Exception:
+        task_creation_failures.add(1)
+        raise
+
+    tasks_created.add(1)
     log_activity(project.id, f"{user.name} created {task.key}", user.id, task.id)
     return task
 
