@@ -50,15 +50,36 @@ separate, always-on endpoint - not set up here.
 
 ## What's actually flowing right now
 
-Only **traces**. The app's current instrumentation (FastAPI + SQLAlchemy
-auto-instrumentation, see the backend README's "Telemetry" section)
-only creates spans - it doesn't emit metrics or logs through OTel. The
-Prometheus and Loki pipelines below are real and wired up correctly
-(verified: `docker compose pull`'s prometheus exporter scrape succeeds,
-Loki's OTLP endpoint accepts pushes), they just have nothing to carry
-yet. Adding metrics (e.g. request counts/latencies) or routing the
-app's logs through OTel instead of plain stdout would start filling
-those in without any change on this side.
+**Traces and metrics.** The app's instrumentation (FastAPI + SQLAlchemy
+auto-instrumentation, plus four app-specific metrics - see the backend
+README's "Telemetry" section) emits both. **Not logs** - the app still
+just writes to stdout, not through OTel, so the Loki pipeline is real
+and wired up correctly (verified: it accepts OTLP pushes), but has
+nothing to carry yet. Routing the app's logs through OTel instead of
+plain stdout would start filling that in without any change on this
+side.
+
+## The dashboard
+
+Grafana comes with a "Kanban App Metrics" dashboard already provisioned
+(`grafana/provisioning/dashboards/kanban-app-metrics.json`) - open it
+straight from Grafana's home page, no setup needed. It shows the four
+metrics above (current totals as stat panels, trends as time series),
+with **Environment** and **Deployed version** dropdowns at the top that
+filter every panel by `deployment_environment`/`service_version` - both
+populated from whatever values have actually been seen, via
+`label_values(...)` queries against the metrics themselves.
+
+This relies on `otel-collector-config.yaml`'s `prometheus` exporter
+having `resource_to_telemetry_conversion` enabled, which copies every
+OTel resource attribute (including both of those) onto every metric as
+a label - without it, they'd only exist on the separate `target_info`
+metric, and the dashboard's filters wouldn't have anything to filter
+*on* the metrics directly. Verified end to end: ran the app twice under
+two different `APP_VERSION`s, confirmed both show up as separate
+`service_version` label values in Prometheus, and confirmed the
+dashboard's filtered queries correctly isolate one version's data from
+the other (and union them back together when filtering by both/"All").
 
 ## How telemetry actually gets from the app to here
 
