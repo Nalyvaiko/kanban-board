@@ -92,9 +92,21 @@ three resource attributes identifying this deployment:
 | `service.version` | `APP_VERSION` | `unknown` | same script, from the deployed image's tag |
 
 Spans are only actually exported if `OTEL_EXPORTER_OTLP_ENDPOINT` is set
-(standard OTLP env var) - point it at a collector to see them anywhere.
-With nothing set (local dev, tests, CI), instrumentation still runs but
-has nowhere to send spans, so it doesn't try.
+(standard OTLP env var) - point it at a collector to see them anywhere
+(see `../observability/`, a ready-to-run Collector + Prometheus + Loki +
+Tempo + Grafana stack). With nothing set (local dev, tests, CI),
+instrumentation still runs but has nowhere to send spans, so it doesn't
+try - same for the metrics below.
+
+Four app-specific metrics are tracked too (same resource attributes as
+above, via `target_info` in Prometheus):
+
+| Metric | Instrument | Recorded where |
+| --- | --- | --- |
+| `boards_created` | Counter | `routers/boards.py`, on a successful `POST /projects/{id}/boards` |
+| `active_sessions` | UpDownCounter | `auth.py`'s `issue_token`/`revoke_token` - +1 per login/register, -1 per logout |
+| `tasks_created` | Counter | `routers/tasks.py`, on a successful `POST /tasks` |
+| `task_creation_failures` | Counter | same handler, any exception (permission, 404, validation) during task creation |
 
 ## Testing
 
