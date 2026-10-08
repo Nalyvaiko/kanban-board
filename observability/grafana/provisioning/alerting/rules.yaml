@@ -1,0 +1,92 @@
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: kanban-board-alerts
+    folder: Kanban Board
+    interval: 1m
+    rules:
+      # Threshold (>5 within a trailing 5m window) separates a real
+      # problem from normal noise: a single task-creation failure is
+      # routine (one blank-title submission, one permission error) and
+      # does not deserve a page; a burst of more than 5 within 5
+      # minutes means something is actively breaking task creation for
+      # more than one unlucky click.
+      #
+      # `for: 2m` (not 5m) is deliberate, not just "a shorter number":
+      # the measurement window itself is 5m, so a `for` duration close
+      # to that would mean the burst has often already scrolled back
+      # out of its own window by the time the sustain check would
+      # complete - confirmed by actually firing a burst and watching
+      # this happen with for: 5m during testing: the rule correctly
+      # went Pending, but reset to Normal before 5m was up, because
+      # increase(...[5m]) fell back under the threshold on its own.
+      # 2m leaves a solid ~3m margin inside the 5m window for the
+      # confirmation to complete, while still requiring the breach to
+      # hold for two consecutive 1m evaluations (not just one noisy
+      # tick) before actually firing.
+      - uid: kanban-task-creation-failures
+        title: Repeated task creation failures
+        condition: threshold
+        data:
+          - refId: query
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              refId: query
+              editorMode: code
+              expr: sum by (service_name, deployment_environment, service_version) (increase(task_creation_failures_total[5m]))
+              instant: true
+              range: false
+          - refId: threshold
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: "__expr__"
+            model:
+              refId: threshold
+              type: threshold
+              expression: query
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [5]
+                  operator:
+                    type: and
+                  query:
+                    params: [query]
+                  reducer:
+                    type: last
+                    params: []
+        for: 2m
+        noDataState: OK
+        execErrState: Error
+        isPaused: false
+        labels:
+          severity: warning
+          # Who gets paged, and who the alert text below names as the
+          # owner - a static label (there is no "owner" telemetry
+          # attribute to derive this from) rather than a stand-in for a
+          # real on-call rotation this project does not have.
+          owner: backend
+        annotations:
+          summary: >-
+            {{ $labels.service_name }} ({{ $labels.deployment_environment }},
+            version {{ $labels.service_version }}) has had more than 5
+            task-creation failures in the last 5 minutes.
+          description: >-
+            Repeated failures creating tasks usually mean a real, broad
+            problem (a bad deploy, a database outage, a bug) rather than
+            isolated user error such as one blank-title submission.
+          owner: backend
+          # A relative path, readable as-is in Grafana's own alert UI
+          # (which resolves it against its own origin) - combined with
+          # __dashboardUid__/__panelId__ below, which is what actually
+          # makes this an absolute, clickable link in a contact point's
+          # notification (e.g. the default webhook payload's
+          # dashboardURL field), via GF_SERVER_ROOT_URL.
+          dashboard_url: /d/kanban-app-metrics/kanban-app-metrics
+          __dashboardUid__: kanban-app-metrics
+          __panelId__: "4"

@@ -79,6 +79,44 @@ two different `APP_VERSION`s, confirmed both show up as separate
 dashboard's filtered queries correctly isolate one version's data from
 the other (and union them back together when filtering by both/"All").
 
+## Alerting
+
+One Grafana-managed alert rule is provisioned (`grafana/provisioning/
+alerting/`): **Repeated task creation failures**, which fires when
+`task_creation_failures_total` shows more than 5 failures within a
+trailing 5-minute window, sustained for 2 minutes. Both numbers are
+chosen, not arbitrary - see rules.yaml's own comment, which also
+documents a real bug this caught: an earlier version used a 5-minute
+sustain duration (equal to the measurement window), and actually
+testing it - firing a real burst of failures and watching the rule's
+state - showed it going Pending and then resetting back to Normal
+before the 5 minutes was up, because the burst scrolled back out of
+its own 5-minute measurement window at essentially the same rate the
+sustain timer was counting down. A single occasional failure (one
+blank-title submission, one permission error) is routine and does not
+fire this; a sustained burst does.
+
+Each firing alert carries, as real labels/annotations rather than
+boilerplate text - verified by actually triggering it and reading the
+live alert back from Grafana's API:
+
+| What | Where it comes from |
+| --- | --- |
+| Service | `service_name` label - from the query's own `by (service_name, ...)` grouping, i.e. the real OTel resource attribute, not a hardcoded string |
+| Environment | `deployment_environment` label, same way |
+| Deployed version | `service_version` label, same way |
+| Owner | `owner` label/annotation - static (`backend`); there's no telemetry attribute this could come from, since this project has no real on-call rotation |
+| Dashboard URL | `dashboard_url` annotation (a path Grafana's own UI resolves against itself) plus `__dashboardUid__`/`__panelId__`, which link it to "Kanban App Metrics"' Task Creation Failures panel and make that link absolute in a contact point's own notification (via `GF_SERVER_ROOT_URL`) |
+
+It's routed (`policies.yaml`) to a provisioned webhook contact point
+(`contactpoints.yaml`) named `kanban-board-oncall` - currently pointed
+at a placeholder URL, since a real Slack/PagerDuty/Opsgenie integration
+needs credentials this project doesn't have. The rule firing and
+routing to that contact point is real and verified (Grafana's own logs
+show it dispatching); only the very last hop - an actual webhook
+somewhere actually receiving it - needs a real URL dropped in to
+`contactpoints.yaml` (or edited directly in Grafana's Alerting UI).
+
 ## How telemetry actually gets from the app to here
 
 ```
