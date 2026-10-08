@@ -50,3 +50,7 @@ __pycache__/
 /e2e/test-results/
 /e2e/playwright-report/
 /e2e/playwright/.cache/
+
+# on-call-engineer's own runtime state (dispatch.log/agent-*.log are
+# already covered by the *.log rule above)
+/on-call-engineer/state.json
