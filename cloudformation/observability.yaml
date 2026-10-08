@@ -135,6 +135,19 @@ Resources:
           CidrIp: 0.0.0.0/0
           Description: Needed to pull OS updates, clone the repo, and pull the observability images from Docker Hub.
 
+  # Allocated on its own, not via the instance's own InstanceId property
+  # (unlike the app template's AppEip) - UserData below needs this
+  # address before the instance exists, to set GF_SERVER_ROOT_URL, so
+  # the instance has to depend on the EIP instead of the other way
+  # around. ObservabilityEipAssociation (further down) does the actual
+  # attaching.
+  ObservabilityEip:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+        - { Key: Name, Value: !Sub "${AWS::StackName}-observability" }
+
   ObservabilityInstance:
     Type: AWS::EC2::Instance
     Properties:
@@ -176,17 +189,21 @@ Resources:
           git clone --branch "${GitRef}" --depth 1 "${RepoUrl}" /opt/observability-src
           cd /opt/observability-src/observability
 
-          echo "GF_SECURITY_ADMIN_PASSWORD=${GrafanaAdminPassword}" > .env
+          {
+            echo "GF_SECURITY_ADMIN_PASSWORD=${GrafanaAdminPassword}"
+            echo "GF_SERVER_ROOT_URL=http://${ObservabilityEip}:3000"
+          } > .env
 
           docker compose up -d
 
-  ObservabilityEip:
-    Type: AWS::EC2::EIP
+  # Attaches the EIP above to the instance - separate from the EIP
+  # resource itself so the instance (and its UserData) can depend on
+  # the EIP without the EIP depending on the instance.
+  ObservabilityEipAssociation:
+    Type: AWS::EC2::EIPAssociation
     Properties:
-      Domain: vpc
+      AllocationId: !GetAtt ObservabilityEip.AllocationId
       InstanceId: !Ref ObservabilityInstance
-      Tags:
-        - { Key: Name, Value: !Sub "${AWS::StackName}-observability" }
 
 Outputs:
   GrafanaUrl:

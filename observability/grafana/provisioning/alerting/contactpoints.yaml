@@ -1,0 +1,18 @@
+apiVersion: 1
+
+# A generic webhook rather than a specific Slack/PagerDuty/Opsgenie
+# integration - those all need a real account and credentials this
+# project does not have. Swap the URL below for a real one (edit this
+# file and redeploy, or edit it directly in Grafana's own Alerting UI)
+# to actually get notified; until then this contact point exists and
+# is wired up, it just has nowhere real to send to.
+contactPoints:
+  - orgId: 1
+    name: kanban-board-oncall
+    receivers:
+      - uid: kanban-board-oncall-webhook
+        type: webhook
+        settings:
+          url: https://example.com/replace-with-a-real-webhook-url
+          httpMethod: POST
+        disableResolveMessage: false
