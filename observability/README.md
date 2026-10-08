@@ -42,11 +42,9 @@ before - see `backend/src/kanban_backend/telemetry.py`'s own comment.
 This stack can be started, stopped, or not running at all without
 affecting whether the app stack itself comes up.
 
-A real deploy (`deploy-app.sh`) doesn't set this at all right now - this
-stack is local/dev-oriented only; nothing here is deployed to AWS.
-Pointing a real deployment at a collector would mean either running
-this stack on the same instance (same pattern as above) or at a
-separate, always-on endpoint - not set up here.
+A real deploy (`deploy-app.sh`) sets this the same way, just pointed at
+a real, always-on collector instead of localhost - see "Deploying to
+AWS" below for how dev and production both get wired up to it.
 
 ## What's actually flowing right now
 
@@ -96,6 +94,77 @@ The collector is the only thing the app talks to directly
 there) - swapping Tempo/Loki/Prometheus for something else later is a
 collector-config change, not an app change.
 
+## Deploying to AWS
+
+One instance, shared by both environments - not duplicated per
+environment the way the app stack is (`cloudformation/template.yaml`,
+deployed once as `kanban-board` for dev and again as `kanban-board-prod`
+for production). There's only ever one Grafana to look at either
+environment's data in, filtered by the dashboard's Environment dropdown
+- see "The dashboard" above.
+
+1. **Deploy it** (once, ever - same account as the app stacks, any VPC/
+   subnet, doesn't need to be the same one they use):
+
+   ```sh
+   aws cloudformation deploy \
+     --template-file cloudformation/observability.yaml \
+     --stack-name kanban-board-observability \
+     --parameter-overrides \
+         VpcId=<your-vpc-id> \
+         SubnetId=<your-subnet-id> \
+         GrafanaAdminPassword=<pick-a-real-password> \
+     --capabilities CAPABILITY_NAMED_IAM
+   ```
+
+   Then, after a few minutes:
+
+   ```sh
+   aws cloudformation describe-stacks --stack-name kanban-board-observability \
+     --query 'Stacks[0].Outputs' --output table
+   ```
+
+   `GrafanaUrl` is the dashboard (login `admin` / whatever password you
+   set); `CollectorOtlpEndpoint` is what the next step needs.
+
+2. **Point dev and production at it**: add `OTEL_COLLECTOR_ENDPOINT` as
+   a variable - set to the `CollectorOtlpEndpoint` value from step 1 -
+   in **both** GitHub Environments (repo → Settings → Environments →
+   `dev`, then again under `production`; see `cloudformation/README.md`'s
+   "Two environments" section for how those were set up in the first
+   place). The next deploy to either one picks it up automatically -
+   `deploy-app.sh` writes it into the running app container's
+   environment, and `backend/src/kanban_backend/telemetry.py` starts
+   exporting to it. No app code change, no redeploy of this stack
+   itself needed.
+
+   Leaving `OTEL_COLLECTOR_ENDPOINT` unset in an environment is fine -
+   that environment's app just doesn't send telemetry, same as any
+   local run with `OTEL_EXPORTER_OTLP_ENDPOINT` unset.
+
+3. **Updating this stack later** (a `docker-compose.yaml`/collector-
+   config change, say) - there's no CI job for this one, since it's
+   infrequent and config-only:
+
+   ```sh
+   aws ssm start-session --target <InstanceId-from-the-outputs-table>
+   cd /opt/observability-src && git pull
+   cd observability && docker compose up -d
+   ```
+
+   Or delete the stack and deploy again for a fresh instance - same
+   tradeoff as the app stack's own "Updating after a code change"
+   section.
+
+**What's different from local here**: only Grafana (3000) and the
+collector's OTLP ports (4317/4318) are open to the internet -
+Prometheus/Loki/Tempo's own ports are not, unlike local `docker compose
+up`'s defaults (see the Notes below on why, and `cloudformation/
+observability.yaml`'s security group for the exact reasoning). Grafana
+also gets a real admin password instead of the default `admin`/`admin`,
+since this instance - unlike a laptop - is reachable by anyone who
+finds its IP.
+
 ## Notes
 
 - **Tempo is pinned to `2.6.1`**, not `latest` like the others - Tempo
@@ -107,5 +176,6 @@ collector-config change, not an app change.
   database (see `../cloudformation/README.md`). Fine for local
   dev/demo; not a real observability backend.
 - **No auth in front of Prometheus/Loki/Tempo's own ports** - acceptable
-  for a stack that only runs on localhost; don't publish these ports on
-  a real server without putting something in front of them.
+  for a stack that only runs on localhost; the AWS deploy above acts on
+  this by simply not opening those three ports in its security group,
+  rather than putting anything in front of them.

@@ -3,13 +3,18 @@
 # deploy-dev job in ../workflows/ci-cd.yml and the deploy-to-prod job in
 # ../workflows/promote-to-production.yml). Not invoked directly - the
 # caller substitutes __GIT_SHA__/__GITHUB_REPOSITORY__/__IMAGE__/
-# __ENVIRONMENT__ before sending it. __IMAGE__ is the full pushed
-# reference, e.g.
+# __ENVIRONMENT__/__OTEL_ENDPOINT__ before sending it. __IMAGE__ is the
+# full pushed reference, e.g.
 # 123456789012.dkr.ecr.us-east-1.amazonaws.com/kanban-board:20260818-163457-83242da
 # - already built and pushed by ci-cd.yml's build job (or, when this
 # runs for a promotion, already pushed as part of some earlier dev
 # deploy). This script only ever pulls; it never builds on the instance.
 # __ENVIRONMENT__ is just "dev" or "production" - which caller this is.
+# __OTEL_ENDPOINT__ is the observability stack's collector address
+# (cloudformation/observability.yaml's CollectorOtlpEndpoint output,
+# e.g. http://203.0.113.10:4318) or empty if that variable was never
+# set - empty is fine, see telemetry.py's own comment on what an unset
+# OTEL_EXPORTER_OTLP_ENDPOINT does.
 set -euxo pipefail
 
 # The instance's own first boot (see cloudformation/template.yaml's
@@ -48,6 +53,7 @@ aws ecr get-login-password --region "$REGION" \
   echo "APP_IMAGE=$IMAGE"
   echo "APP_VERSION=${IMAGE##*:}"
   echo "ENVIRONMENT=__ENVIRONMENT__"
+  echo "OTEL_EXPORTER_OTLP_ENDPOINT=__OTEL_ENDPOINT__"
 } > .env
 
 docker compose pull app

@@ -252,6 +252,11 @@ From here, pushes to `main` keep dev continuously up to date; production
 only moves when you explicitly run the workflow, and the two can never
 interfere with each other's AWS resources.
 
+**Sending both environments' telemetry somewhere**: see
+`../observability/README.md`'s "Deploying to AWS" section - one
+Collector/Prometheus/Loki/Tempo/Grafana instance, shared by both `dev`
+and `production` rather than deployed per environment.
+
 ## What you're trading for the low cost
 
 - **The database can be lost.** The data lives on the server's disk. It

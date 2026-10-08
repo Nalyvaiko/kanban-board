@@ -148,6 +148,7 @@ jobs:
             -e "s#__GITHUB_REPOSITORY__#${{ github.repository }}#g" \
             -e "s#__IMAGE__#${{ needs.get-dev-state.outputs.image }}#g" \
             -e "s#__ENVIRONMENT__#production#g" \
+            -e "s#__OTEL_ENDPOINT__#${{ vars.OTEL_COLLECTOR_ENDPOINT }}#g" \
             .github/scripts/deploy-app.sh)
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids "${{ steps.stack.outputs.instance_id }}" \
