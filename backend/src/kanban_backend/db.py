@@ -37,7 +37,15 @@ _is_sqlite_memory = _is_sqlite and ":memory:" in DATABASE_URL
 
 _engine_kwargs: dict[str, object] = {}
 if _is_sqlite:
-    _engine_kwargs["connect_args"] = {"check_same_thread": False}
+    # Paired with _sqlite_begin's BEGIN IMMEDIATE below - see its own
+    # comment for the actual bug this pair fixes. This half just makes
+    # sure a connection that legitimately has to wait for another's
+    # write-intent lock to be released (BEGIN IMMEDIATE queues them
+    # instead of erroring) waits long enough to actually get it: the
+    # driver's own default is 5s, too short once more than a couple of
+    # requests write around the same time, since each holds that lock
+    # for its whole transaction, not just one statement.
+    _engine_kwargs["connect_args"] = {"check_same_thread": False, "timeout": 30}
     if _is_sqlite_memory:
         # An in-memory SQLite DB is per-connection; pin the engine to a
         # single connection so every thread sees the same database.
@@ -65,7 +73,32 @@ if _is_sqlite and not _is_sqlite_memory:
 
     @event.listens_for(engine, "begin")
     def _sqlite_begin(conn) -> None:
-        conn.exec_driver_sql("BEGIN")
+        # IMMEDIATE, not a plain deferred BEGIN: reproduced directly
+        # (raw sqlite3, no SQLAlchemy involved) that a plain BEGIN lets
+        # two or more connections each take a SHARED (read) lock first
+        # - every request's own membership/board/column lookups do
+        # this before any write - and then race to upgrade to a write
+        # lock at the same moment. That specific conflict is NOT
+        # subject to busy_timeout's retry at all - SQLite fails it
+        # immediately (confirmed: elapsed 0.0s, not a timeout), unlike
+        # the ordinary "someone else already holds the write lock,
+        # wait your turn" case, which busy_timeout (above) does handle
+        # correctly. IMMEDIATE takes the write-intent lock at the very
+        # start of the transaction instead of deferring it to the
+        # first write, which turns every transaction's conflict into
+        # that ordinary, retriable case - confirmed this combination
+        # (IMMEDIATE + a real busy_timeout) resolves 8 concurrent
+        # POST /api/tasks to the same project against a real file-based
+        # DB, which reliably failed with sqlite3.OperationalError:
+        # database is locked before this fix. The real cost: any
+        # request that might write now holds that lock for its whole
+        # transaction even if it never actually writes, so concurrent
+        # requests serialize around it more than they did before -
+        # the right tradeoff here (this app's SQLite default is
+        # explicitly the cheap, not the scalable, option - see
+        # cloudformation/README.md) over leaving writes free to fail
+        # under perfectly ordinary concurrent use.
+        conn.exec_driver_sql("BEGIN IMMEDIATE")
 
 # Default is a single shared scope for anything that runs outside a request
 # (module-level seeding at startup, tests' direct Store() instances) - safe
