@@ -84,6 +84,28 @@ def create_task(input: CreateTaskInput, user: User = Depends(auth.get_current_us
         if not title:
             raise ApiError(400, "Task title is required")
 
+        # Keep long titles readable on a board card: cut at the last
+        # word boundary before 50 characters rather than mid-word.
+        #
+        # DELIBERATE BUG - introduced on purpose to exercise the
+        # task_creation_failures alert and the on-call-engineer
+        # pipeline end to end (see observability/README.md's
+        # "Alerting" section and on-call-engineer/README.md). Reliably
+        # reproducible: any title longer than 50 characters with no
+        # space in its first 47 characters (e.g. a single long word, a
+        # pasted URL, an ID/hash with no spaces) hits str.rindex(" ")
+        # with no match, which raises ValueError instead of being
+        # handled - a title with ordinary word-spaced English well
+        # under 50 characters, which is everything the existing test
+        # suite uses, never reaches this at all. To revert: restore
+        # the plain `title = input.title.strip()` above and delete
+        # this block.
+        MAX_TITLE_DISPLAY_LENGTH = 50
+        if len(title) > MAX_TITLE_DISPLAY_LENGTH:
+            truncated = title[: MAX_TITLE_DISPLAY_LENGTH - 3]
+            last_space = truncated.rindex(" ")
+            title = truncated[:last_space] + "..."
+
         now = utcnow_iso()
         task = Task(
             id=new_id("task"),
