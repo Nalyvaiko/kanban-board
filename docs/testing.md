@@ -1,6 +1,6 @@
 # Testing
 
-Four layers, each a different tradeoff between speed and realism. Run the fastest
+Five layers, each a different tradeoff between speed and realism. Run the fastest
 layer that would actually catch the bug you're worried about.
 
 ## Backend unit/API tests - pytest
@@ -15,11 +15,25 @@ layer that would actually catch the bug you're worried about.
 - Command: `cd backend && uv run pytest` (or `make test-backend`).
 
 **Known gap**: the in-memory DB skips the file-based SQLite transaction/locking
-code path entirely (see `db.py`'s own comment on this). A concurrency bug in that
-path - see issue #21 - has to be reproduced with a standalone script against a
-real file-based DB; it cannot be caught by this suite. If you touch `db.py`'s
-SQLite transaction handling, verify by hand the way #21 did, not just by running
-`pytest`.
+code path entirely (see `db.py`'s own comment on this) - this suite alone cannot
+catch a regression in that path. See "Concurrency tests" below for the one that
+can.
+
+## Concurrency tests - real file-based SQLite
+
+- Regression coverage for the real file-locking code path the in-memory suite
+  above cannot touch - see issue #21/#28 and `db.py`'s own comment on
+  `_sqlite_begin` for why `BEGIN IMMEDIATE` matters here.
+- Location: `backend/tests_concurrency/`. Command: `make test-concurrency`.
+- Deliberately outside `backend/tests/`: `testpaths = ["tests"]` in
+  `pyproject.toml` means it's never swept into `make test-backend`, and it
+  needs `DATABASE_URL` pointed at a real file *before* `kanban_backend.db` is
+  first imported in that process - the Makefile target sets that up; running
+  `pytest` directly on this directory without it just skips the one test.
+- Verified both directions, not just that it currently passes: temporarily
+  reverted `db.py`'s `BEGIN IMMEDIATE` back to a plain `BEGIN` and confirmed
+  this test fails (7/8 requests return 500), then restored the fix and
+  confirmed it passes again.
 
 ## Frontend tests - Vitest
 
