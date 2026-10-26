@@ -1,10 +1,13 @@
 # On-call engineer
 
-`poll.py` watches the observability stack's alert API and, when a
-Grafana alert fires (see `../observability/grafana/provisioning/
-alerting/`), hands its full details to a headless coding agent -
-Claude Code itself, in its non-interactive `claude -p` mode - to
-investigate and, if it can, fix.
+**The problem**: an alert firing (see `../observability/grafana/
+provisioning/alerting/`) doesn't mean anyone is actually watching
+Grafana, or awake, at that moment - the whole point of having an
+on-call rotation. `poll.py` closes that gap without a human rotation:
+it watches the alert API itself and, the moment something fires,
+hands its full details to a headless coding agent - Claude Code
+itself, in its non-interactive `claude -p` mode - to investigate and,
+if it can, fix, with nobody needing to have seen the alert first.
 
 This is not deployed anywhere and is not part of either Compose stack.
 It needs a real coding agent's own credentials and a real checkout of
@@ -58,6 +61,19 @@ goes to `on-call-engineer/agent-<fingerprint>-<timestamp>.log`.
 
 An incident is dispatched once, not once per minute it stays firing -
 `state.json` is what remembers that.
+
+**Expected behavior in the cases that aren't the happy path:**
+
+- **Grafana is unreachable** (network blip, Grafana restarting): the
+  poll tick logs the error and moves on - the next tick tries again.
+  No crash, no backoff, no alerting-about-the-alerting-system.
+- **The agent itself fails to even start** (e.g. `claude` isn't on
+  `PATH` in whatever environment runs this script): logged, and
+  `state.json` is *not* updated for that incident - the next poll tick
+  retries dispatching it, rather than silently giving up on it forever.
+- **Several alerts are firing at once**: each gets its own independent
+  `dispatch()` call and its own agent process and log file - one
+  alert's agent run has no bearing on another's.
 
 ## Before pointing this at a real alert
 
