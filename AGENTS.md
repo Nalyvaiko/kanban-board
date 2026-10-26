@@ -10,15 +10,15 @@ response.
 - `PROJECT-SPEC.md` — product scope, MVP goals, data model. Source of truth for
   product decisions.
 - `openapi.yaml` — the API contract the backend implements against.
-- `_docs/plan.md` — points to the above, plus where infra/observability
+- `docs/plan.md` — points to the above, plus where infra/observability
   decisions live (they're not in `PROJECT-SPEC.md`).
-- `_docs/process.md` — how the agent team works: roles, orchestrator, task
+- `docs/process.md` — how the agent team works: roles, orchestrator, task
   lifecycle, rules.
-- `_docs/task-template.md` — the four-section template every groomed task uses.
-- `_docs/tasks.md` — backlog, one-to-one with the GitHub issues.
-- `_docs/testing.md` — the four test layers (pytest/Vitest/integration/e2e),
+- `docs/task-template.md` — the four-section template every groomed task uses.
+- `docs/tasks.md` — backlog, one-to-one with the GitHub issues.
+- `docs/testing.md` — the four test layers (pytest/Vitest/integration/e2e),
   what each actually covers, and the one known gap in the backend suite.
-- `_docs/team/*.md` — what each role (PM, Software Engineer, DevOps Engineer,
+- `docs/team/*.md` — what each role (PM, Software Engineer, DevOps Engineer,
   SRE, QA) actually does and its definition of done.
 - `backend/README.md`, `cloudformation/README.md`, `observability/README.md`,
   `on-call-engineer/README.md` — area-specific setup, tradeoffs, and how to run
@@ -26,12 +26,12 @@ response.
 
 ## Rules
 
-- Read `PROJECT-SPEC.md` (and `_docs/plan.md` for anything infra/observability)
+- Read `PROJECT-SPEC.md` (and `docs/plan.md` for anything infra/observability)
   before planning work; do not expand scope past it.
-- Follow `_docs/process.md`.
-- Keep `_docs/tasks.md` and the GitHub issues in sync when tasks change.
+- Follow `docs/process.md`.
+- Keep `docs/tasks.md` and the GitHub issues in sync when tasks change.
 - Branch off `main`; do not commit directly to `main`.
-- Keep planning and reference docs in `_docs/`.
+- Keep planning and reference docs in `docs/`.
 - For backend, use `uv` for dependency management: `uv sync`, `uv add
   <package>`, `uv run python <file>`.
 - Regularly commit code to git.
@@ -61,7 +61,7 @@ response.
 - `cd observability && docker compose up -d` — the observability stack, its
   own independent Compose project
 
-See `_docs/testing.md` for the full breakdown and `cloudformation/README.md` /
+See `docs/testing.md` for the full breakdown and `cloudformation/README.md` /
 `observability/README.md` for the AWS equivalents.
 
 ## Environment
