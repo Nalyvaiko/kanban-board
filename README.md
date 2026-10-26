@@ -1,25 +1,48 @@
 # kanban-board
 
-A Kanban board app - FastAPI/SQLModel backend (`backend/`), React/TanStack
-Start frontend (`frontend/`) - built out with a full deployment pipeline,
-an observability stack with alerting, and an on-call automation on top,
-following an explicit agent-team process (`docs/`). See `backend/README.md`
-and `PROJECT-SPEC.md` for product/API detail; `make run` / `make install`
-(see `Makefile`) cover local dev.
+**The problem**: a team juggling work across several projects needs more
+than a single to-do list - they need boards they can customize per
+project, the ability to see who's working on what and assign it to them,
+and a history of what happened and when, without standing up a full Jira
+instance to get it. This is a Jira-style project management app that
+covers that: multiple projects, customizable Kanban boards, task
+assignment/priority/labels/due dates/comments/attachments, activity
+history, and three permission levels (admin/member/viewer) per project -
+see `PROJECT-SPEC.md` for the full MVP scope this implements against.
+
+**Built as**: a FastAPI/SQLModel backend (`backend/`) and a React/
+TanStack Start frontend (`frontend/`), on top of a full deployment
+pipeline, an observability stack with alerting, and an on-call automation,
+following an explicit agent-team process (`docs/`) - see "Evidence of the
+work done" below. `make run` / `make install` (see `Makefile`) cover
+local dev.
 
 ## Try the live app
 
 **http://3.146.110.209:8000** - a real deployment on AWS (EC2, via
 `cloudformation/template.yaml`), kept up to date automatically by CI/CD on
 every push to `main` (verified reachable as of this commit: `/` returns
-200, `/api/health` returns `{"status":"ok"}`). Seeded demo accounts (all
-use the password `password123`) - see `backend/README.md`'s "Data
-storage" section for the full list and their roles:
+200, `/api/health` returns `{"status":"ok"}`).
 
-| Email | Password |
-| --- | --- |
-| alice@example.com | password123 |
-| bob@example.com | password123 |
+**Expected behavior**: log in with one of the seeded demo accounts below
+(password `password123` for all) and you'll land on a dashboard showing
+two pre-existing projects - "Website Redesign" and "Mobile App" - each
+with its own Kanban board, columns, and tasks already populated, so there's
+something to click around immediately rather than an empty app. Drag a
+task between columns, open one to comment or attach a file, and check the
+project's activity feed - it should show your change. Role matters: log
+in as `carol` (viewer-only on "Website Redesign") and task/column edit
+controls on that project are gone, not just disabled. `dave` has no
+project yet - only a pending invitation, visible on his dashboard, which
+he can accept. See `backend/README.md`'s "Data storage" section for the
+full account/role table.
+
+| Email | Password | What you'll see |
+| --- | --- | --- |
+| alice@example.com | password123 | Admin on "Website Redesign", member on "Mobile App" |
+| bob@example.com | password123 | Member on "Website Redesign", admin on "Mobile App" |
+| carol@example.com | password123 | Viewer-only on "Website Redesign" - no edit controls |
+| dave@example.com | password123 | No project yet - a pending invitation to accept |
 
 No install needed - just open the URL above.
 
