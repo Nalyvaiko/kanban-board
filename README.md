@@ -24,25 +24,25 @@ local dev.
 every push to `main` (verified reachable as of this commit: `/` returns
 200, `/api/health` returns `{"status":"ok"}`).
 
-**Expected behavior**: log in with one of the seeded demo accounts below
-(password `password123` for all) and you'll land on a dashboard showing
-two pre-existing projects - "Website Redesign" and "Mobile App" - each
-with its own Kanban board, columns, and tasks already populated, so there's
-something to click around immediately rather than an empty app. Drag a
-task between columns, open one to comment or attach a file, and check the
-project's activity feed - it should show your change. Role matters: log
-in as `carol` (viewer-only on "Website Redesign") and task/column edit
-controls on that project are gone, not just disabled. `dave` has no
-project yet - only a pending invitation, visible on his dashboard, which
-he can accept. See `backend/README.md`'s "Data storage" section for the
-full account/role table.
+**Expected behavior**: log in with the read-only demo account below and
+you'll land on a dashboard showing a pre-existing project, "Website
+Redesign," with its own Kanban board, columns, and tasks already
+populated - browse it, open a task, search/filter, and check the
+activity history, all without needing to create anything first:
 
 | Email | Password | What you'll see |
 | --- | --- | --- |
-| alice@example.com | password123 | Admin on "Website Redesign", member on "Mobile App" |
-| bob@example.com | password123 | Member on "Website Redesign", admin on "Mobile App" |
-| carol@example.com | password123 | Viewer-only on "Website Redesign" - no edit controls |
-| dave@example.com | password123 | No project yet - a pending invitation to accept |
+| carol@example.com | password123 | Viewer-only on "Website Redesign" - browse everything, change nothing |
+
+This is deliberately the *only* credential published here, and
+deliberately the viewer role: this is a public demo on a shared live
+database, and a viewer account can't create, edit, delete, or comment on
+anything - verified directly against the live deployment (a write
+attempt as `carol` gets a real `403`), not just assumed from the role
+name. See `backend/README.md`'s "Data storage" section for the other
+seeded accounts (not published here, since they can write) - or just
+register your own account on the live app above to try the full,
+editable experience with your own disposable data.
 
 No install needed - just open the URL above.
 
