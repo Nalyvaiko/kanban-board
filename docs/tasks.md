@@ -26,7 +26,9 @@ starting and again before closing.
 | [#23](https://github.com/Nalyvaiko/kanban-board/issues/23) | ✅ Closed | Improve on-call README: problem statement and expected behavior | SRE |
 | [#24](https://github.com/Nalyvaiko/kanban-board/issues/24) | ✅ Closed | Define the agent team and development process | - (meta/docs) |
 | [#26](https://github.com/Nalyvaiko/kanban-board/issues/26) | ✅ Closed | Stop relying on GitHub auto-close keywords; close issues per process.md instead | - (meta/docs) |
-| [#28](https://github.com/Nalyvaiko/kanban-board/issues/28) | 🟡 Open - PR pending | Add a permanent regression test for the SQLite concurrency fix | Software Engineer |
+| [#28](https://github.com/Nalyvaiko/kanban-board/issues/28) | ✅ Closed | Add a permanent regression test for the SQLite concurrency fix | Software Engineer |
+| [#30](https://github.com/Nalyvaiko/kanban-board/issues/30) | ✅ Closed | Fix: promote-to-production's SSM comment exceeds AWS's 100-char limit | DevOps Engineer |
+| [#32](https://github.com/Nalyvaiko/kanban-board/issues/32) | ✅ Closed | Add structured logs correlated to trace ID for a key user journey | SRE |
 
 Issues #7-24 were filed retroactively against work already merged to `main` -
 each issue's close comment cites the exact commit(s) that satisfied its
@@ -36,6 +38,15 @@ and GitHub still never auto-closed them - they sat open until the user asked
 why. Closed explicitly once that was noticed. See `process.md`'s "Closing
 issues" section (added by #26) for the rule this led to: the orchestrator
 always closes explicitly, `Closes #N` is a cross-reference only.
+
+**#24, #26, #28, #30, #32 were themselves closed by GitHub's auto-close via
+`Closes #N`** (confirmed via the GitHub API - each one's `closer` is the
+merging PR), **with no evidence comment at the time** - the exact anti-pattern
+the rule above exists to prevent, on the very issue that introduced the rule
+and every one after it. Backfilled the missing evidence comments afterward
+(citing the real, already-merged commit each one was actually closed by) and
+fixed this table, which had drifted out of sync as a direct result (#28
+stayed listed as "Open - PR pending"; #30/#32 weren't listed at all).
 
 New tasks go on this list and as a GitHub issue together, using
 [`task-template.md`](task-template.md). Keep this table in sync with the issues -
