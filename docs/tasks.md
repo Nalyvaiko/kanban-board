@@ -22,14 +22,19 @@ starting and again before closing.
 | [#19](https://github.com/Nalyvaiko/kanban-board/issues/19) | ✅ Closed | Alert on repeated task-creation failures | SRE |
 | [#20](https://github.com/Nalyvaiko/kanban-board/issues/20) | ✅ Closed | Automate on-call response to firing alerts | SRE |
 | [#21](https://github.com/Nalyvaiko/kanban-board/issues/21) | ✅ Closed | Find and fix the real bug behind repeated task-creation failures | Software Engineer |
-| [#22](https://github.com/Nalyvaiko/kanban-board/issues/22) | 🟡 Open - [PR #5](https://github.com/Nalyvaiko/kanban-board/pull/5) pending | Prove the alert/on-call pipeline catches a real regression | SRE |
-| [#23](https://github.com/Nalyvaiko/kanban-board/issues/23) | 🟡 Open - [PR #6](https://github.com/Nalyvaiko/kanban-board/pull/6) pending | Improve on-call README: problem statement and expected behavior | SRE |
+| [#22](https://github.com/Nalyvaiko/kanban-board/issues/22) | ✅ Closed | Prove the alert/on-call pipeline catches a real regression | SRE |
+| [#23](https://github.com/Nalyvaiko/kanban-board/issues/23) | ✅ Closed | Improve on-call README: problem statement and expected behavior | SRE |
+| [#24](https://github.com/Nalyvaiko/kanban-board/issues/24) | ✅ Closed | Define the agent team and development process | - (meta/docs) |
+| [#26](https://github.com/Nalyvaiko/kanban-board/issues/26) | 🟡 Open - [PR #27](https://github.com/Nalyvaiko/kanban-board/pull/27) pending | Stop relying on GitHub auto-close keywords; close issues per process.md instead | - (meta/docs) |
 
-Issues #7-21 were filed retroactively against work already merged to `main` -
+Issues #7-24 were filed retroactively against work already merged to `main` -
 each issue's close comment cites the exact commit(s) that satisfied its
-acceptance criteria. #22 and #23 were filed against work that's real but not yet
-merged; they'll auto-close when PR #5 and PR #6 merge (each PR's description
-has a `Closes #N`).
+acceptance criteria. #22 and #23 are a cautionary tale, not an auto-close
+success story: their PRs (#5, #6) merged with a correctly-linked `Closes #N`,
+and GitHub still never auto-closed them - they sat open until the user asked
+why. Closed explicitly once that was noticed. See `process.md`'s "Closing
+issues" section (added by #26) for the rule this led to: the orchestrator
+always closes explicitly, `Closes #N` is a cross-reference only.
 
 New tasks go on this list and as a GitHub issue together, using
 [`task-template.md`](task-template.md). Keep this table in sync with the issues -

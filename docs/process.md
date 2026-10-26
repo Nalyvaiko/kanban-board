@@ -35,15 +35,27 @@ engineer(s), and QA as subagents. It does not groom, implement, or test itself.
 3. The right engineer(s) implement it
 4. QA verifies it
 5. On FAIL, back to step 3 with the QA comment as input
-6. On PASS, close the issue
+6. On PASS, the orchestrator closes the issue itself - see "Closing issues" below
 7. Repeat until the backlog is empty
+
+## Closing issues
+
+The orchestrator closes an issue explicitly (`gh issue close`, with a comment
+saying what verified it) after QA outputs PASS. Do not depend on a PR's
+`Closes #N`/`Fixes #N` to do this for you, even when it links correctly: issues
+#22 and #23 both had a correctly-established link (confirmed via the GitHub
+API - `closingIssuesReferences` showed the link, the PR showed `merged: true`)
+and GitHub still did not auto-close either one. Keep `Closes #N` in PR
+descriptions anyway - it's a useful cross-reference in the UI - but it is never
+the thing that actually closes the issue; the explicit close in step 6 is.
 
 ## Rules
 
 - Do not skip step 2
 - The engineer does not close the issue
 - QA does not fix the code, only outputs PASS or FAIL
-- The orchestrator closes the issue only after QA outputs PASS
+- The orchestrator closes the issue only after QA outputs PASS, and does so
+  explicitly - see "Closing issues" above
 - Keep `tasks.md` and the GitHub issues in sync when tasks change
 - Verify empirically before claiming something works: run the real command, hit
   the real endpoint, bring up the real stack. Static review (reading the diff) is
