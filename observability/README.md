@@ -48,14 +48,22 @@ AWS" below for how dev and production both get wired up to it.
 
 ## What's actually flowing right now
 
-**Traces and metrics.** The app's instrumentation (FastAPI + SQLAlchemy
-auto-instrumentation, plus four app-specific metrics - see the backend
-README's "Telemetry" section) emits both. **Not logs** - the app still
-just writes to stdout, not through OTel, so the Loki pipeline is real
-and wired up correctly (verified: it accepts OTLP pushes), but has
-nothing to carry yet. Routing the app's logs through OTel instead of
-plain stdout would start filling that in without any change on this
-side.
+**All three signals.** Traces and metrics (FastAPI + SQLAlchemy
+auto-instrumentation plus four app-specific metrics), and now
+structured JSON logs too (see the backend README's "Telemetry"
+section and `backend/src/kanban_backend/logging_config.py`) - task
+creation's logs carry the same `trace_id` as its trace, so the three
+signals for one request are actually correlated, not just
+coincidentally emitted by the same process.
+
+Verified end to end, not just configured: created a real task against
+the real stack, pulled the resulting log line's `trace_id` from
+stdout, queried Tempo for that exact ID, and got back the real trace
+for that same request - then confirmed the log reached Loki too (with
+the same `trace_id` as a queryable field) and is reachable through
+Grafana's own datasource proxy, not just Loki's raw API. Also
+re-verified the no-leaked-credentials finding specifically against
+Loki (not just Tempo) - same clean result.
 
 ## The dashboard
 

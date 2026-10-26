@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, Query
 
 from .. import auth
@@ -21,6 +23,7 @@ from .boards import get_board_or_404, get_column_or_404
 from .projects import get_project_or_404
 
 router = APIRouter(tags=["Tasks"])
+logger = logging.getLogger("kanban_backend.tasks")
 
 
 def get_task_or_404(task_id: str) -> Task:
@@ -104,11 +107,34 @@ def create_task(input: CreateTaskInput, user: User = Depends(auth.get_current_us
             updatedAt=now,
         )
         store.tasks[task.id] = task
-    except Exception:
+    except Exception as exc:
         task_creation_failures.add(1)
+        # IDs/metadata only - never the title/description, which is
+        # arbitrary user content, not something to send to telemetry.
+        logger.warning(
+            "task creation failed",
+            extra={
+                "project_id": input.projectId,
+                "board_id": input.boardId,
+                "column_id": input.columnId,
+                "user_id": user.id,
+                "error_type": type(exc).__name__,
+            },
+        )
         raise
 
     tasks_created.add(1)
+    logger.info(
+        "task created",
+        extra={
+            "task_id": task.id,
+            "task_key": task.key,
+            "project_id": project.id,
+            "board_id": task.boardId,
+            "column_id": task.columnId,
+            "user_id": user.id,
+        },
+    )
     log_activity(project.id, f"{user.name} created {task.key}", user.id, task.id)
     return task
 

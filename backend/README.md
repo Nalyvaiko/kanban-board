@@ -108,6 +108,24 @@ above, via `target_info` in Prometheus):
 | `tasks_created` | Counter | `routers/tasks.py`, on a successful `POST /tasks` |
 | `task_creation_failures` | Counter | same handler, any exception (permission, 404, validation) during task creation |
 
+Structured JSON logs carry the active request's trace ID too (see
+`src/kanban_backend/logging_config.py`), so a trace, its metrics, and
+its logs all share one ID - query any one and find the others. Always
+on stdout as JSON, independent of whether a collector is configured
+(so `docker logs | grep <trace_id>` works even locally with nothing
+else running); additionally exported via OTLP to Loki when
+`OTEL_EXPORTER_OTLP_ENDPOINT` is set, same gate as traces/metrics.
+`routers/tasks.py`'s `create_task` is the one journey with log calls
+today (`task created` / `task creation failed`, with IDs/metadata as
+structured fields - never the title or any other free-text user
+content).
+
+Verified directly, not assumed: registered a user with a real
+password, searched every resulting trace and log line for it, and
+found nothing - FastAPI's instrumentation doesn't capture request
+bodies by default, and SQLAlchemy's `db.statement` attribute captures
+parameterized SQL (`%(param)s` placeholders), never bound values.
+
 ## Testing
 
 ```sh

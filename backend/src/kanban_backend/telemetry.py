@@ -1,7 +1,7 @@
 """OpenTelemetry setup.
 
-Every span and metric this process emits carries three resource
-attributes that identify *which* deployment it came from:
+Every span, metric, and log record this process emits carries three
+resource attributes that identify *which* deployment it came from:
 
   - service.name           OTEL_SERVICE_NAME, defaults to "kanban-backend"
   - deployment.environment ENVIRONMENT, e.g. "dev" or "production" (see
@@ -43,6 +43,7 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.semconv.resource import ResourceAttributes
 
 from .db import engine
+from .logging_config import setup_logging
 
 _meter = metrics.get_meter("kanban_backend")
 
@@ -95,3 +96,5 @@ def setup_telemetry(app: FastAPI) -> None:
 
     FastAPIInstrumentor.instrument_app(app)
     SQLAlchemyInstrumentor().instrument(engine=engine)
+
+    setup_logging(resource)
