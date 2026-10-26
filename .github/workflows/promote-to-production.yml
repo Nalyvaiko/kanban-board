@@ -153,7 +153,7 @@ jobs:
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids "${{ steps.stack.outputs.instance_id }}" \
             --document-name AWS-RunShellScript \
-            --comment "Promote ${{ needs.get-dev-state.outputs.image }} to production" \
+            --comment "Promote ${{ needs.get-dev-state.outputs.commit_sha }} to production" \
             --parameters "$(jq -n --arg script "$SCRIPT" '{commands: [$script]}')" \
             --query 'Command.CommandId' --output text)
           echo "command_id=$COMMAND_ID" >> "$GITHUB_OUTPUT"
