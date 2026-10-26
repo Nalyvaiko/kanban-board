@@ -25,7 +25,8 @@ starting and again before closing.
 | [#22](https://github.com/Nalyvaiko/kanban-board/issues/22) | ✅ Closed | Prove the alert/on-call pipeline catches a real regression | SRE |
 | [#23](https://github.com/Nalyvaiko/kanban-board/issues/23) | ✅ Closed | Improve on-call README: problem statement and expected behavior | SRE |
 | [#24](https://github.com/Nalyvaiko/kanban-board/issues/24) | ✅ Closed | Define the agent team and development process | - (meta/docs) |
-| [#26](https://github.com/Nalyvaiko/kanban-board/issues/26) | 🟡 Open - [PR #27](https://github.com/Nalyvaiko/kanban-board/pull/27) pending | Stop relying on GitHub auto-close keywords; close issues per process.md instead | - (meta/docs) |
+| [#26](https://github.com/Nalyvaiko/kanban-board/issues/26) | ✅ Closed | Stop relying on GitHub auto-close keywords; close issues per process.md instead | - (meta/docs) |
+| [#28](https://github.com/Nalyvaiko/kanban-board/issues/28) | 🟡 Open - PR pending | Add a permanent regression test for the SQLite concurrency fix | Software Engineer |
 
 Issues #7-24 were filed retroactively against work already merged to `main` -
 each issue's close comment cites the exact commit(s) that satisfied its
