@@ -64,7 +64,7 @@ request - only once all of that passes does `deploy-dev` run.
 
 ## Verifying infrastructure and observability work
 
-None of the four layers above touch CloudFormation, the CI/CD workflows
+None of the five layers above touch CloudFormation, the CI/CD workflows
 themselves, or the observability stack - there is no automated test suite for
 those. Verify them the way this project's own history actually did (see the
 DevOps Engineer and SRE docs in `team/`): `cfn-lint` / `actionlint` / `shellcheck`
