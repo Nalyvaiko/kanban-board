@@ -748,12 +748,16 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Task" }
         "400":
-          description: Task title is required.
+          description: >
+            Task title is required; the board does not belong to the project
+            or the column does not belong to the board; the assignee is not a
+            member of the project; or a label does not belong to the project.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
 
   /tasks/{taskId}:
     parameters:
@@ -776,7 +780,8 @@ paths:
       description: >
         Requires at least the `member` role. Any field may be omitted to
         leave it unchanged; changes are recorded on the project's activity
-        feed.
+        feed. Changing `columnId` appends the task to the end of the new
+        column, same as `/move` without a `position`.
       requestBody:
         required: true
         content:
@@ -788,6 +793,14 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Task" }
+        "400":
+          description: >
+            The title is blank; the column does not belong to the task's
+            board; the assignee is not a member of the project; or a label
+            does not belong to the project.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -1068,6 +1081,16 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Label" }
+        "400":
+          description: Label name is required.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409":
+          description: Another label in this project already has that name.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }

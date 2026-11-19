@@ -134,3 +134,124 @@ def test_delete_task_cascades_comments_and_relations(client, admin):
     # The inverse relation on the *other* task must be gone too.
     remaining_relations = client.get(f"/api/tasks/{t2['id']}/relations", headers=admin["headers"]).json()
     assert remaining_relations == []
+
+
+def _other_project(client, admin):
+    """A second project owned by the same admin, with its board and columns."""
+    headers = admin["headers"]
+    project = client.post(
+        "/api/projects", json={"name": "Other Project", "key": "OTH"}, headers=headers
+    ).json()
+    board = client.get(f"/api/projects/{project['id']}/boards", headers=headers).json()[0]
+    columns = client.get(f"/api/boards/{board['id']}/data", headers=headers).json()["columns"]
+    return {"project": project, "board": board, "columns": columns}
+
+
+def _post_task(client, admin, **overrides):
+    body = {
+        "projectId": admin["project"]["id"],
+        "boardId": admin["board"]["id"],
+        "columnId": admin["columns"][0]["id"],
+        "title": "Untitled task",
+    }
+    body.update(overrides)
+    return client.post("/api/tasks", json=body, headers=admin["headers"])
+
+
+def test_create_task_rejects_board_from_another_project(client, admin):
+    other = _other_project(client, admin)
+    response = _post_task(
+        client, admin, boardId=other["board"]["id"], columnId=other["columns"][0]["id"]
+    )
+    assert response.status_code == 400
+    tasks = client.get(f"/api/projects/{admin['project']['id']}/tasks", headers=admin["headers"])
+    assert tasks.json() == []
+
+
+def test_create_task_rejects_column_from_another_board(client, admin):
+    other = _other_project(client, admin)
+    response = _post_task(client, admin, columnId=other["columns"][0]["id"])
+    assert response.status_code == 400
+
+
+def test_task_assignee_must_be_project_member(client, admin):
+    outsider = register(client, "Mallory", "mallory@example.com")
+    assert _post_task(client, admin, assigneeId=outsider["user"]["id"]).status_code == 400
+
+    task = _create_task(client, admin)
+    response = client.patch(
+        f"/api/tasks/{task['id']}",
+        json={"assigneeId": outsider["user"]["id"]},
+        headers=admin["headers"],
+    )
+    assert response.status_code == 400
+
+    # Clearing the assignee is still allowed.
+    response = client.patch(
+        f"/api/tasks/{task['id']}", json={"assigneeId": None}, headers=admin["headers"]
+    )
+    assert response.status_code == 200
+    assert response.json()["assigneeId"] is None
+
+
+def test_task_labels_must_belong_to_project(client, admin):
+    other = _other_project(client, admin)
+    foreign_label = client.post(
+        f"/api/projects/{other['project']['id']}/labels",
+        json={"name": "foreign"},
+        headers=admin["headers"],
+    ).json()
+    own_label = client.post(
+        f"/api/projects/{admin['project']['id']}/labels",
+        json={"name": "own"},
+        headers=admin["headers"],
+    ).json()
+
+    assert _post_task(client, admin, labelIds=[foreign_label["id"]]).status_code == 400
+
+    # Duplicate ids collapse to one.
+    task = _create_task(client, admin, labelIds=[own_label["id"], own_label["id"]])
+    assert task["labelIds"] == [own_label["id"]]
+
+    response = client.patch(
+        f"/api/tasks/{task['id']}",
+        json={"labelIds": ["label_does_not_exist"]},
+        headers=admin["headers"],
+    )
+    assert response.status_code == 400
+
+
+def test_update_task_rejects_blank_title_and_strips_whitespace(client, admin):
+    task = _create_task(client, admin, title="Original")
+
+    response = client.patch(
+        f"/api/tasks/{task['id']}", json={"title": "   "}, headers=admin["headers"]
+    )
+    assert response.status_code == 400
+
+    response = client.patch(
+        f"/api/tasks/{task['id']}", json={"title": "  Renamed  "}, headers=admin["headers"]
+    )
+    assert response.status_code == 200
+    assert response.json()["title"] == "Renamed"
+
+
+def test_update_task_column_change_keeps_positions_contiguous(client, admin):
+    todo, doing = admin["columns"][0]["id"], admin["columns"][1]["id"]
+    a = _create_task(client, admin, title="A", columnId=todo)
+    b = _create_task(client, admin, title="B", columnId=todo)
+    c = _create_task(client, admin, title="C", columnId=todo)
+    existing = _create_task(client, admin, title="Already there", columnId=doing)
+
+    response = client.patch(
+        f"/api/tasks/{a['id']}", json={"columnId": doing}, headers=admin["headers"]
+    )
+    assert response.status_code == 200
+
+    data = client.get(f"/api/boards/{admin['board']['id']}/data", headers=admin["headers"]).json()
+    by_column: dict[str, list[tuple[str, int]]] = {}
+    for t in data["tasks"]:
+        by_column.setdefault(t["columnId"], []).append((t["id"], t["position"]))
+
+    assert by_column[todo] == [(b["id"], 0), (c["id"], 1)]
+    assert by_column[doing] == [(existing["id"], 0), (a["id"], 1)]

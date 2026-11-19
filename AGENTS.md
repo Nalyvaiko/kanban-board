@@ -16,7 +16,7 @@ response.
   lifecycle, rules.
 - `docs/task-template.md` — the four-section template every groomed task uses.
 - `docs/tasks.md` — backlog, one-to-one with the GitHub issues.
-- `docs/testing.md` — the four test layers (pytest/Vitest/integration/e2e),
+- `docs/testing.md` — the five test layers (pytest/concurrency/Vitest/integration/e2e),
   what each actually covers, and the one known gap in the backend suite.
 - `docs/team/*.md` — what each role (PM, Software Engineer, DevOps Engineer,
   SRE, QA) actually does and its definition of done.

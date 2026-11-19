@@ -51,7 +51,19 @@ def create_label(
 def rename_label(labelId: str, input: RenameLabelInput, user: User = Depends(auth.get_current_user)) -> Label:
     label = get_label_or_404(labelId)
     auth.require_admin(label.projectId, user)
-    label.name = input.name.strip().lower()
+
+    # Same rules as create_label - otherwise a rename is a back door to a
+    # blank or duplicate label name.
+    name = input.name.strip().lower()
+    if not name:
+        raise ApiError(400, "Label name is required")
+    if any(
+        l.projectId == label.projectId and l.name == name and l.id != label.id
+        for l in store.labels.values()
+    ):
+        raise ApiError(409, "That label already exists")
+
+    label.name = name
     return label
 
 
