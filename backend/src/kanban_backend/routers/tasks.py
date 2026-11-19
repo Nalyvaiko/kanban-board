@@ -33,6 +33,23 @@ def get_task_or_404(task_id: str) -> Task:
     return task
 
 
+def _validate_task_references(
+    project_id: str, assignee_id: str | None, label_ids: list[str] | None
+) -> None:
+    """Rejects an assignee or labels that don't belong to the task's project.
+
+    Without this, a task could point at a user who can't even see the
+    project, or carry a label id from some other project (which would then
+    leak that label's name/color into this project's board).
+    """
+    if assignee_id is not None and store.get_member(project_id, assignee_id) is None:
+        raise ApiError(400, "Assignee must be a member of this project")
+    for label_id in label_ids or []:
+        label = store.labels.get(label_id)
+        if label is None or label.projectId != project_id:
+            raise ApiError(400, "Label does not belong to this project")
+
+
 @router.get("/projects/{projectId}/tasks", response_model=list[Task])
 def list_tasks(
     projectId: str,
@@ -80,12 +97,17 @@ def create_task(input: CreateTaskInput, user: User = Depends(auth.get_current_us
     try:
         project = get_project_or_404(input.projectId)
         auth.require_contributor(project.id, user)
-        get_board_or_404(input.boardId)
+        board = get_board_or_404(input.boardId)
         column = get_column_or_404(input.columnId)
+        if board.projectId != project.id:
+            raise ApiError(400, "Board does not belong to this project")
+        if column.boardId != board.id:
+            raise ApiError(400, "Column does not belong to this board")
 
         title = input.title.strip()
         if not title:
             raise ApiError(400, "Task title is required")
+        _validate_task_references(project.id, input.assigneeId, input.labelIds)
 
         now = utcnow_iso()
         task = Task(
@@ -99,7 +121,7 @@ def create_task(input: CreateTaskInput, user: User = Depends(auth.get_current_us
             type=input.type,
             priority=input.priority,
             assigneeId=input.assigneeId,
-            labelIds=input.labelIds,
+            labelIds=list(dict.fromkeys(input.labelIds)),
             dueDate=input.dueDate,
             position=len(store.list_tasks_for_column(column.id)),
             createdBy=user.id,
@@ -170,10 +192,25 @@ def update_task(taskId: str, input: UpdateTaskInput, user: User = Depends(auth.g
     task = get_task_or_404(taskId)
     auth.require_contributor(task.projectId, user)
 
-    if input.columnId is not None and input.columnId != task.columnId:
+    if input.title is not None:
+        input.title = input.title.strip()
+        if not input.title:
+            raise ApiError(400, "Task title is required")
+
+    origin_column_id = task.columnId
+    column_changed = input.columnId is not None and input.columnId != origin_column_id
+    if column_changed:
         column = get_column_or_404(input.columnId)
         if column.boardId != task.boardId:
             raise ApiError(400, "Column does not belong to this task's board")
+
+    _validate_task_references(
+        task.projectId,
+        input.assigneeId if "assigneeId" in input.model_fields_set else None,
+        input.labelIds,
+    )
+    if input.labelIds is not None:
+        input.labelIds = list(dict.fromkeys(input.labelIds))
 
     changes = _describe_changes(task, input)
 
@@ -191,8 +228,14 @@ def update_task(taskId: str, input: UpdateTaskInput, user: User = Depends(auth.g
         task.labelIds = input.labelIds
     if input.dueDate is not None or "dueDate" in input.model_fields_set:
         task.dueDate = input.dueDate
-    if input.columnId is not None:
+    if column_changed:
+        # Same bookkeeping as /move: append to the destination column and
+        # close the gap left behind, so positions stay 0..n-1 in both.
+        task.position = len(store.list_tasks_for_column(input.columnId))
         task.columnId = input.columnId
+        remaining = [t for t in store.list_tasks_for_column(origin_column_id) if t.id != task.id]
+        for index, t in enumerate(remaining):
+            t.position = index
 
     task.updatedAt = utcnow_iso()
 
