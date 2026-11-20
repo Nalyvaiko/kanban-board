@@ -116,3 +116,24 @@ def test_revoke_invitation_requires_admin(client, admin):
 
     allowed = client.delete(f"/api/invitations/{invitation['id']}", headers=admin["headers"])
     assert allowed.status_code == 204
+
+
+def test_removed_member_cannot_rejoin_with_an_old_invitation(client, admin):
+    dave = register(client, "Dave", "dave@example.com")
+    dave_headers = auth_header(dave["token"])
+    project_id = admin["project"]["id"]
+
+    invitation = client.post(
+        f"/api/projects/{project_id}/invitations",
+        json={"email": "dave@example.com", "role": "member"},
+        headers=admin["headers"],
+    ).json()
+    first = client.post(f"/api/invitations/{invitation['id']}/accept", headers=dave_headers)
+    assert first.status_code == 204
+
+    removed = client.delete(f"/api/projects/{project_id}/members/{dave['user']['id']}", headers=admin["headers"])
+    assert removed.status_code == 204
+
+    again = client.post(f"/api/invitations/{invitation['id']}/accept", headers=dave_headers)
+    assert again.status_code == 409
+    assert client.get(f"/api/projects/{project_id}/my-role", headers=dave_headers).status_code == 403

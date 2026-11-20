@@ -159,6 +159,11 @@ def accept_invitation(invitationId: str, user: User = Depends(auth.get_current_u
     invitation = _get_invitation_or_404(invitationId)
     if invitation.email.lower() != user.email.lower():
         raise forbidden("That invitation is for another account")
+    # An invitation is single-use: otherwise a member an admin removed could
+    # re-accept their old (already accepted) invitation and walk straight
+    # back into the project.
+    if invitation.status != InvitationStatus.pending:
+        raise ApiError(409, "That invitation is no longer pending")
 
     if store.get_member(invitation.projectId, user.id) is None:
         member = ProjectMember(

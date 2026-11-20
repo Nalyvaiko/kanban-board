@@ -501,7 +501,9 @@ paths:
       summary: Accept an invitation addressed to the current user
       description: >
         Joins the invitation's project with the invited role. The
-        invitation's email must match the current user's email.
+        invitation's email must match the current user's email, and the
+        invitation must still be `pending` - each invitation can be
+        accepted once.
       responses:
         "204": { description: Accepted; membership created. }
         "401": { $ref: "#/components/responses/Unauthorized" }
@@ -511,6 +513,11 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: That invitation is no longer pending.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
 
   # -------------------------------------------------------------------------
   # Boards & columns
@@ -900,7 +907,9 @@ paths:
     patch:
       tags: [Comments]
       summary: Edit a comment
-      description: Only the comment's author may edit it.
+      description: >
+        Only the comment's author may edit it, and only while they still
+        hold at least the `member` role on the task's project.
       requestBody:
         required: true
         content:
@@ -931,7 +940,10 @@ paths:
     delete:
       tags: [Comments]
       summary: Delete a comment
-      description: The comment's author or a project admin may delete it.
+      description: >
+        A project admin may delete any comment; the comment's author may
+        delete it only while they still hold at least the `member` role on
+        the task's project.
       responses:
         "204": { description: Deleted. }
         "401": { $ref: "#/components/responses/Unauthorized" }

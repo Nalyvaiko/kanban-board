@@ -56,6 +56,10 @@ def update_comment(
     comment = _get_comment_or_404(commentId)
     if comment.authorId != user.id:
         raise forbidden("You can only edit your own comments")
+    # Authorship alone isn't enough: someone removed from the project (or
+    # demoted to viewer) must lose write access to what they wrote there.
+    task = get_task_or_404(comment.taskId)
+    auth.require_contributor(task.projectId, user)
     body = input.body.strip()
     if not body:
         raise ApiError(400, "Comment cannot be empty")
@@ -67,9 +71,12 @@ def update_comment(
 @router.delete("/comments/{commentId}", status_code=204)
 def delete_comment(commentId: str, user: User = Depends(auth.get_current_user)) -> None:
     comment = _get_comment_or_404(commentId)
-    task = store.tasks.get(comment.taskId)
-    is_author = comment.authorId == user.id
-    is_admin = task is not None and (m := store.get_member(task.projectId, user.id)) and m.role == Role.admin
-    if not is_author and not is_admin:
+    task = get_task_or_404(comment.taskId)
+    member = auth.require_member(task.projectId, user)
+    is_admin = member.role == Role.admin
+    # Authors may delete their own comments only while they can still
+    # contribute to the project; admins may delete anyone's.
+    is_contributing_author = comment.authorId == user.id and member.role != Role.viewer
+    if not is_admin and not is_contributing_author:
         raise forbidden("You can only delete your own comments")
     store.comments.pop(commentId, None)

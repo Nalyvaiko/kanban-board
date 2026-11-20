@@ -13,6 +13,51 @@ def _create_task(client, admin, title="Task"):
     return client.post("/api/tasks", json=body, headers=admin["headers"]).json()
 
 
+def _bob_with_a_comment(client, admin):
+    """Bob, a project member, who has commented on a task."""
+    bob = register(client, "Bob", "bob@example.com")
+    client.post(
+        f"/api/projects/{admin['project']['id']}/members",
+        json={"email": "bob@example.com", "role": "member"},
+        headers=admin["headers"],
+    )
+    bob_headers = auth_header(bob["token"])
+    task = _create_task(client, admin)
+    comment = client.post(
+        f"/api/tasks/{task['id']}/comments", json={"body": "mine"}, headers=bob_headers
+    ).json()
+    return bob, bob_headers, comment
+
+
+def test_removed_member_cannot_edit_or_delete_their_old_comment(client, admin):
+    bob, bob_headers, comment = _bob_with_a_comment(client, admin)
+    client.delete(
+        f"/api/projects/{admin['project']['id']}/members/{bob['user']['id']}", headers=admin["headers"]
+    )
+
+    edit = client.patch(f"/api/comments/{comment['id']}", json={"body": "edited"}, headers=bob_headers)
+    assert edit.status_code == 403
+    delete = client.delete(f"/api/comments/{comment['id']}", headers=bob_headers)
+    assert delete.status_code == 403
+
+    # An admin can still clean it up.
+    assert client.delete(f"/api/comments/{comment['id']}", headers=admin["headers"]).status_code == 204
+
+
+def test_viewer_cannot_edit_or_delete_their_old_comment(client, admin):
+    bob, bob_headers, comment = _bob_with_a_comment(client, admin)
+    client.patch(
+        f"/api/projects/{admin['project']['id']}/members/{bob['user']['id']}",
+        json={"role": "viewer"},
+        headers=admin["headers"],
+    )
+
+    edit = client.patch(f"/api/comments/{comment['id']}", json={"body": "edited"}, headers=bob_headers)
+    assert edit.status_code == 403
+    delete = client.delete(f"/api/comments/{comment['id']}", headers=bob_headers)
+    assert delete.status_code == 403
+
+
 def test_only_author_can_edit_or_delete_their_comment(client, admin):
     bob = register(client, "Bob", "bob@example.com")
     client.post(
