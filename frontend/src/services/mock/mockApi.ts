@@ -421,6 +421,9 @@ export class MockJiraApi implements JiraApi {
     const invitation = db.invitations.find((i) => i.id === invitationId);
     if (!invitation) notFound("Invitation");
     if (invitation.email !== me.email) forbidden("That invitation is for another account");
+    if (invitation.status !== "pending") {
+      throw new ApiError("That invitation is no longer pending", 409);
+    }
     invitation.status = "accepted";
     if (!db.members.some((m) => m.projectId === invitation.projectId && m.userId === me.id)) {
       db.members.push({
@@ -759,8 +762,9 @@ export class MockJiraApi implements JiraApi {
     if (!comment) notFound("Comment");
     const me = this.session();
     const task = this.task(comment.taskId);
-    this.role(task.projectId);
+    const role = this.role(task.projectId);
     if (comment.authorId !== me.id) forbidden("You can only edit your own comments");
+    if (role === "viewer") forbidden();
     const text = body.trim();
     if (!text) throw new ApiError("Comment cannot be empty");
     comment.body = text;
@@ -775,7 +779,8 @@ export class MockJiraApi implements JiraApi {
     const me = this.session();
     const task = this.task(comment.taskId);
     const role = this.role(task.projectId);
-    if (comment.authorId !== me.id && role !== "admin")
+    const isContributingAuthor = comment.authorId === me.id && role !== "viewer";
+    if (role !== "admin" && !isContributingAuthor)
       forbidden("You can only delete your own comments");
     db.comments = db.comments.filter((c) => c.id !== commentId);
     return tick(undefined);
