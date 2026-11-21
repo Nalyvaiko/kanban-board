@@ -113,7 +113,8 @@ def delete_column(columnId: str, user: User = Depends(auth.get_current_user)) ->
     # Append the deleted column's tasks, in order, after the fallback
     # column's own. Count the fallback column once up front: re-counting it
     # inside the loop would also count the task being moved (the session
-    # autoflushes its new columnId), leaving a gap before every moved task.
+    # autoflushes its new columnId), shifting every moved task one slot too
+    # far and leaving a gap after the fallback column's own tasks.
     fallback = next(c for c in siblings if c.id != columnId)
     base = len(store.list_tasks_for_column(fallback.id))
     for offset, task in enumerate(store.list_tasks_for_column(columnId)):
