@@ -34,6 +34,23 @@ def utcnow_iso() -> str:
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
+def parse_due_date(value: str) -> datetime | None:
+    """Parse a task due date into an aware UTC datetime, or None if it isn't
+    ISO-8601.
+
+    Accepts a full date-time (with `Z`/offset, or naive - taken as UTC) or a
+    bare `YYYY-MM-DD`, which means midnight UTC of that day: the same thing
+    the frontend's date picker sends.
+    """
+    try:
+        parsed = datetime.fromisoformat(value.strip())
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
 class Role(str, Enum):
     admin = "admin"
     member = "member"
