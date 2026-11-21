@@ -784,7 +784,8 @@ paths:
           description: >
             Task title is required; the board does not belong to the project
             or the column does not belong to the board; the assignee is not a
-            member of the project; or a label does not belong to the project.
+            member of the project; a label does not belong to the project; or
+            `dueDate` is not an ISO-8601 date or date-time.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -829,8 +830,9 @@ paths:
         "400":
           description: >
             The title is blank; the column does not belong to the task's
-            board; the assignee is not a member of the project; or a label
-            does not belong to the project.
+            board; the assignee is not a member of the project; a label does
+            not belong to the project; or `dueDate` is not an ISO-8601 date or
+            date-time.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -1500,7 +1502,14 @@ components:
         labelIds:
           type: array
           items: { type: string }
-        dueDate: { type: string, format: date-time, nullable: true }
+        dueDate:
+          type: string
+          format: date-time
+          nullable: true
+          description: >
+            A calendar day, stored as midnight UTC of that day in canonical
+            form (`YYYY-MM-DDTHH:MM:SSZ`). Clients should display it in UTC so
+            the day doesn't shift with the viewer's timezone.
         position:
           type: integer
           minimum: 0
@@ -1628,7 +1637,10 @@ components:
         overdueTasks:
           type: array
           items: { $ref: "#/components/schemas/Task" }
-          description: Subset of myTasks whose dueDate has passed.
+          description: >
+            Subset of myTasks whose due day has passed, i.e. whose `dueDate`
+            falls on a day before today (UTC). A task is not overdue on its
+            own due day.
 
     CreateProjectInput:
       type: object
@@ -1655,7 +1667,12 @@ components:
         labelIds:
           type: array
           items: { type: string }
-        dueDate: { type: string, format: date-time, nullable: true }
+        dueDate:
+          type: string
+          nullable: true
+          description: >
+            ISO-8601 date-time, or a bare `YYYY-MM-DD` (midnight UTC of that
+            day). A date-time without an offset is taken as UTC.
 
     UpdateTaskInput:
       type: object
@@ -1669,5 +1686,8 @@ components:
         labelIds:
           type: array
           items: { type: string }
-        dueDate: { type: string, format: date-time, nullable: true }
+        dueDate:
+          type: string
+          nullable: true
+          description: Same formats as on create; `null` removes the due date.
         columnId: { type: string }

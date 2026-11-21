@@ -15,6 +15,7 @@ from ..models import (
     TaskType,
     UpdateTaskInput,
     User,
+    parse_due_date,
     utcnow_iso,
 )
 from ..store import new_id, store
@@ -31,6 +32,18 @@ def get_task_or_404(task_id: str) -> Task:
     if task is None:
         raise not_found("Task not found")
     return task
+
+
+def _normalize_due_date(value: str | None) -> str | None:
+    """Validate a due date and store it in one canonical UTC form
+    (`YYYY-MM-DDTHH:MM:SSZ`), so every reader - the dashboard's overdue
+    check included - can rely on it parsing."""
+    if value is None or not value.strip():
+        return None
+    parsed = parse_due_date(value)
+    if parsed is None:
+        raise ApiError(400, "Due date must be an ISO-8601 date or date-time")
+    return parsed.isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
 def _validate_task_references(
@@ -108,6 +121,7 @@ def create_task(input: CreateTaskInput, user: User = Depends(auth.get_current_us
         if not title:
             raise ApiError(400, "Task title is required")
         _validate_task_references(project.id, input.assigneeId, input.labelIds)
+        due_date = _normalize_due_date(input.dueDate)
 
         now = utcnow_iso()
         task = Task(
@@ -122,7 +136,7 @@ def create_task(input: CreateTaskInput, user: User = Depends(auth.get_current_us
             priority=input.priority,
             assigneeId=input.assigneeId,
             labelIds=list(dict.fromkeys(input.labelIds)),
-            dueDate=input.dueDate,
+            dueDate=due_date,
             position=len(store.list_tasks_for_column(column.id)),
             createdBy=user.id,
             createdAt=now,
@@ -178,8 +192,8 @@ def _describe_changes(task: Task, input: UpdateTaskInput) -> list[str]:
         changes.append(f"changed type from {task.type.value} to {input.type.value}")
     if "assigneeId" in input.model_fields_set and input.assigneeId != task.assigneeId:
         changes.append("changed the assignee")
-    if input.dueDate is not None and input.dueDate != task.dueDate:
-        changes.append("changed the due date")
+    if "dueDate" in input.model_fields_set and input.dueDate != task.dueDate:
+        changes.append("changed the due date" if input.dueDate else "removed the due date")
     if input.labelIds is not None and set(input.labelIds) != set(task.labelIds):
         changes.append("updated labels")
     if input.description is not None and input.description != task.description:
@@ -196,6 +210,8 @@ def update_task(taskId: str, input: UpdateTaskInput, user: User = Depends(auth.g
         input.title = input.title.strip()
         if not input.title:
             raise ApiError(400, "Task title is required")
+    if "dueDate" in input.model_fields_set:
+        input.dueDate = _normalize_due_date(input.dueDate)
 
     origin_column_id = task.columnId
     column_changed = input.columnId is not None and input.columnId != origin_column_id
@@ -226,7 +242,7 @@ def update_task(taskId: str, input: UpdateTaskInput, user: User = Depends(auth.g
         task.assigneeId = input.assigneeId
     if input.labelIds is not None:
         task.labelIds = input.labelIds
-    if input.dueDate is not None or "dueDate" in input.model_fields_set:
+    if "dueDate" in input.model_fields_set:
         task.dueDate = input.dueDate
     if column_changed:
         # Same bookkeeping as /move: append to the destination column and

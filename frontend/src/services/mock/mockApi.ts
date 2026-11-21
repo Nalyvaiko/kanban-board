@@ -23,6 +23,7 @@ import {
   type UpdateTaskInput,
   type User,
 } from "../types";
+import { formatDate, isOverdue } from "@/lib/task-meta";
 import { avatarColor, createColumnsForBoard, getDb, nowIso, persist, uid } from "./store";
 
 /** Simulated network latency (ms). Kept tiny so the UI stays snappy. */
@@ -658,9 +659,7 @@ export class MockJiraApi implements JiraApi {
       this.log(
         task.projectId,
         task.id,
-        input.dueDate
-          ? `set the due date to ${new Date(input.dueDate).toLocaleDateString()}`
-          : `removed the due date`,
+        input.dueDate ? `set the due date to ${formatDate(input.dueDate)}` : `removed the due date`,
       );
     }
     if (input.labelIds !== undefined) {
@@ -963,8 +962,7 @@ export class MockJiraApi implements JiraApi {
     const myTasks = db.tasks.filter(
       (t) => projectIds.includes(t.projectId) && t.assigneeId === me.id,
     );
-    const now = Date.now();
-    const overdueTasks = myTasks.filter((t) => t.dueDate && new Date(t.dueDate).getTime() < now);
+    const overdueTasks = myTasks.filter((t) => isOverdue(t.dueDate));
     return tick({ projects, myTasks, overdueTasks });
   }
 
