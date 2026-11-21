@@ -32,3 +32,12 @@ def bad_request(message: str) -> ApiError:
 
 def conflict(message: str) -> ApiError:
     return ApiError(409, message)
+
+
+def required_text(value: str, message: str) -> str:
+    """Return `value` stripped, or raise a 400 with `message` if that
+    leaves nothing - for names/titles that must not be blank."""
+    text = value.strip()
+    if not text:
+        raise bad_request(message)
+    return text

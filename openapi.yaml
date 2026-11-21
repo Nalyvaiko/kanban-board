@@ -189,6 +189,11 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/User" }
+        "400":
+          description: Name is required.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
         "401": { $ref: "#/components/responses/Unauthorized" }
 
   # -------------------------------------------------------------------------
@@ -271,6 +276,11 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Project" }
+        "400":
+          description: Project name is required (when `name` is sent).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -559,6 +569,11 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Board" }
+        "400":
+          description: Board name is required.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
 
@@ -620,6 +635,11 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Column" }
+        "400":
+          description: Column name is required.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -646,6 +666,11 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Column" }
+        "400":
+          description: Column name is required.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -654,7 +679,8 @@ paths:
       summary: Delete a column
       description: >
         Requires the `admin` role. Fails if it is the board's only column.
-        Tasks in the deleted column are moved to a remaining column.
+        Tasks in the deleted column are moved to a remaining column,
+        appended in their existing order after that column's own tasks.
       responses:
         "204": { description: Deleted. }
         "400":

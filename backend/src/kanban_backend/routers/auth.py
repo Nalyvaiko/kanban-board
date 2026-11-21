@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Response
 
 from .. import auth
-from ..errors import ApiError, unauthorized
+from ..errors import ApiError, required_text, unauthorized
 from ..models import (
     GoogleLoginInput,
     LoginInput,
@@ -96,5 +96,5 @@ def get_me(user: User | None = Depends(auth.get_current_user_optional)) -> User 
 
 @router.patch("/auth/me", response_model=User)
 def update_me(input: UpdateProfileInput, user: User = Depends(auth.get_current_user)) -> User:
-    user.name = input.name
+    user.name = required_text(input.name, "Name is required")
     return user
