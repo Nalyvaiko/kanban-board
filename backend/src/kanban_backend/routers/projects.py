@@ -5,7 +5,7 @@ import re
 from fastapi import APIRouter, Depends
 
 from .. import auth
-from ..errors import ApiError, not_found
+from ..errors import ApiError, not_found, required_text
 from ..models import (
     CreateProjectInput,
     MyRoleResponse,
@@ -84,7 +84,7 @@ def update_project(
     project = get_project_or_404(projectId)
     auth.require_admin(projectId, user)
     if input.name is not None:
-        project.name = input.name
+        project.name = required_text(input.name, "Project name is required")
     if input.description is not None:
         project.description = input.description
     return project

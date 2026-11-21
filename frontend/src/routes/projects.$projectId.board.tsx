@@ -233,6 +233,12 @@ function ColumnLane({
             className="flex flex-1 gap-1"
             onSubmit={(e) => {
               e.preventDefault();
+              if (!name.trim()) {
+                // A blank name is rejected by the API - treat it as cancel.
+                setName(column.name);
+                setEditing(false);
+                return;
+              }
               rename.mutate();
             }}
           >

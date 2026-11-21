@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 
 from .. import auth
-from ..errors import ApiError, not_found
+from ..errors import ApiError, not_found, required_text
 from ..models import (
     Board,
     BoardData,
@@ -49,7 +49,8 @@ def create_board(
 ) -> Board:
     get_project_or_404(projectId)
     auth.require_admin(projectId, user)
-    board = create_default_board(store, projectId, input.name)
+    name = required_text(input.name, "Board name is required")
+    board = create_default_board(store, projectId, name)
     boards_created.add(1)
     return board
 
@@ -81,8 +82,9 @@ def create_column(
 ) -> Column:
     board = get_board_or_404(boardId)
     auth.require_admin(board.projectId, user)
+    name = required_text(input.name, "Column name is required")
     position = len(store.list_columns(boardId))
-    column = Column(id=new_id("col"), boardId=boardId, name=input.name, position=position)
+    column = Column(id=new_id("col"), boardId=boardId, name=name, position=position)
     store.columns[column.id] = column
     return column
 
@@ -94,7 +96,7 @@ def rename_column(
     column = get_column_or_404(columnId)
     board = get_board_or_404(column.boardId)
     auth.require_admin(board.projectId, user)
-    column.name = input.name
+    column.name = required_text(input.name, "Column name is required")
     return column
 
 
@@ -108,10 +110,15 @@ def delete_column(columnId: str, user: User = Depends(auth.get_current_user)) ->
     if len(siblings) <= 1:
         raise ApiError(400, "A board needs at least one column")
 
+    # Append the deleted column's tasks, in order, after the fallback
+    # column's own. Count the fallback column once up front: re-counting it
+    # inside the loop would also count the task being moved (the session
+    # autoflushes its new columnId), leaving a gap before every moved task.
     fallback = next(c for c in siblings if c.id != columnId)
-    for task in store.list_tasks_for_column(columnId):
+    base = len(store.list_tasks_for_column(fallback.id))
+    for offset, task in enumerate(store.list_tasks_for_column(columnId)):
         task.columnId = fallback.id
-        task.position = len(store.list_tasks_for_column(fallback.id))
+        task.position = base + offset
 
     store.columns.pop(columnId, None)
     for position, c in enumerate(store.list_columns(column.boardId)):
