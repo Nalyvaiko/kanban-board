@@ -50,7 +50,7 @@ def login(input: LoginInput) -> TokenResponse:
     email = input.email.lower()
     user = next((u for u in store.users.values() if u.email.lower() == email), None)
     stored_hash = store.credentials.get(user.id) if user else None
-    if user is None or stored_hash is None or not auth.verify_password(input.password, stored_hash):
+    if not auth.verify_password_or_dummy(input.password, stored_hash) or user is None:
         raise unauthorized("Incorrect email or password")
     token = auth.issue_token(user.id)
     return TokenResponse(token=token, user=user)

@@ -44,6 +44,22 @@ def verify_password(password: str, stored: str) -> bool:
     return hmac.compare_digest(digest.hex(), hex_digest)
 
 
+# A real hash of a random password nobody knows. Login verifies against it
+# when there is no stored hash to check (unknown email, or a Google-only
+# account), so a failed login costs the same PBKDF2 work either way and
+# response time doesn't reveal which emails have accounts.
+_DUMMY_HASH = hash_password(secrets.token_hex(16))
+
+
+def verify_password_or_dummy(password: str, stored: str | None) -> bool:
+    """`verify_password`, but always does the hashing work - against a dummy
+    hash when `stored` is None - and returns False in that case."""
+    if stored is None:
+        verify_password(password, _DUMMY_HASH)
+        return False
+    return verify_password(password, stored)
+
+
 def issue_token(user_id: str, db: Store = store) -> str:
     token = secrets.token_urlsafe(32)
     db.tokens[token] = user_id
