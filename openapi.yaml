@@ -1005,7 +1005,12 @@ paths:
     post:
       tags: [Attachments]
       summary: Upload a file to a task
-      description: Requires at least the `member` role. Files must be 5 MB or smaller.
+      description: >
+        Requires at least the `member` role. Files must be 5 MB or smaller.
+        The stored `filename` is the uploaded name reduced to a plain
+        basename: any directory part is dropped, control characters are
+        removed, and names longer than 255 characters are shortened (keeping
+        the extension).
       requestBody:
         required: true
         content:
@@ -1024,7 +1029,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Attachment" }
         "400":
-          description: File is invalid, or larger than 5 MB.
+          description: File is invalid (including a filename with nothing usable left after cleaning), or larger than 5 MB.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
