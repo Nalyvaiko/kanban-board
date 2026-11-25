@@ -29,7 +29,7 @@ _INVERSE = {
 def list_relations(taskId: str, user: User = Depends(auth.get_current_user)) -> list[RelationWithTask]:
     task = get_task_or_404(taskId)
     auth.require_member(task.projectId, user)
-    relations = [r for r in store.relations.values() if r.taskId == taskId]
+    relations = store.relations.where(TaskRelation.taskId == taskId)
     return [relation_with_task(r) for r in relations]
 
 
@@ -46,10 +46,10 @@ def add_relation(
     if related_task.projectId != task.projectId:
         raise ApiError(400, "The tasks belong to different projects")
 
-    already_linked = any(
-        r.taskId == taskId and r.relatedTaskId == input.relatedTaskId for r in store.relations.values()
+    already_linked = store.relations.first(
+        TaskRelation.taskId == taskId, TaskRelation.relatedTaskId == input.relatedTaskId
     )
-    if already_linked:
+    if already_linked is not None:
         raise ApiError(409, "Those tasks are already linked")
 
     now = utcnow_iso()
@@ -79,13 +79,8 @@ def delete_relation(relationId: str, user: User = Depends(auth.get_current_user)
     auth.require_contributor(task.projectId, user)
 
     store.relations.pop(relationId, None)
-    inverse = next(
-        (
-            r
-            for r in store.relations.values()
-            if r.taskId == relation.relatedTaskId and r.relatedTaskId == relation.taskId
-        ),
-        None,
+    inverse = store.relations.first(
+        TaskRelation.taskId == relation.relatedTaskId, TaskRelation.relatedTaskId == relation.taskId
     )
     if inverse is not None:
         store.relations.pop(inverse.id, None)

@@ -36,8 +36,7 @@ def _slugify_key(name: str) -> str:
 
 @router.get("/projects", response_model=list[Project])
 def list_projects(user: User = Depends(auth.get_current_user)) -> list[Project]:
-    project_ids = {m.projectId for m in store.members.values() if m.userId == user.id}
-    return [p for p in store.projects.values() if p.id in project_ids]
+    return store.projects.where(Project.id.in_(store.project_ids_for_user(user.id)))
 
 
 @router.post("/projects", status_code=201, response_model=Project)
@@ -47,7 +46,7 @@ def create_project(input: CreateProjectInput, user: User = Depends(auth.get_curr
         raise ApiError(400, "Project name is required")
 
     key = re.sub(r"[^A-Z0-9]", "", (input.key or "").upper()) or _slugify_key(name)
-    if any(p.key == key for p in store.projects.values()):
+    if store.projects.first(Project.key == key) is not None:
         raise ApiError(409, "That project key is already in use")
 
     now = utcnow_iso()

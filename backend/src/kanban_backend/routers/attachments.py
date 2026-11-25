@@ -57,7 +57,7 @@ async def _measure(file: UploadFile) -> int:
 def list_attachments(taskId: str, user: User = Depends(auth.get_current_user)) -> list[Attachment]:
     task = get_task_or_404(taskId)
     auth.require_member(task.projectId, user)
-    return [a for a in store.attachments.values() if a.taskId == taskId]
+    return store.attachments.where(Attachment.taskId == taskId)
 
 
 @router.post("/tasks/{taskId}/attachments", status_code=201, response_model=Attachment)

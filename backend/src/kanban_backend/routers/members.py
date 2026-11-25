@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
+from sqlalchemy import func
 
 from .. import auth
 from ..errors import ApiError, forbidden, not_found
@@ -38,8 +39,7 @@ def add_member(
     get_project_or_404(projectId)
     auth.require_admin(projectId, user)
 
-    email = input.email.lower()
-    target = next((u for u in store.users.values() if u.email.lower() == email), None)
+    target = store.find_user_by_email(input.email)
     if target is None:
         raise not_found("No account exists with that email")
     if store.get_member(projectId, target.id) is not None:
@@ -95,7 +95,7 @@ def remove_member(projectId: str, userId: str, user: User = Depends(auth.get_cur
 def list_invitations(projectId: str, user: User = Depends(auth.get_current_user)) -> list[Invitation]:
     get_project_or_404(projectId)
     auth.require_admin(projectId, user)
-    return [i for i in store.invitations.values() if i.projectId == projectId]
+    return store.invitations.where(Invitation.projectId == projectId)
 
 
 @router.post("/projects/{projectId}/invitations", status_code=201, response_model=Invitation)
@@ -106,14 +106,15 @@ def invite_user(
     auth.require_admin(projectId, user)
 
     email = input.email.lower()
-    existing_user = next((u for u in store.users.values() if u.email.lower() == email), None)
+    existing_user = store.find_user_by_email(email)
     if existing_user and store.get_member(projectId, existing_user.id) is not None:
         raise ApiError(409, "That user is already a member")
-    pending = any(
-        i.projectId == projectId and i.email.lower() == email and i.status == InvitationStatus.pending
-        for i in store.invitations.values()
+    pending = store.invitations.first(
+        Invitation.projectId == projectId,
+        func.lower(Invitation.email) == email,
+        Invitation.status == InvitationStatus.pending,
     )
-    if pending:
+    if pending is not None:
         raise ApiError(409, "An invitation is already pending for that email")
 
     invitation = Invitation(
@@ -132,11 +133,9 @@ def invite_user(
 @router.get("/invitations/mine", response_model=list[InvitationWithProject])
 def list_my_invitations(user: User = Depends(auth.get_current_user)) -> list[InvitationWithProject]:
     email = user.email.lower()
-    mine = [
-        i
-        for i in store.invitations.values()
-        if i.email.lower() == email and i.status == InvitationStatus.pending
-    ]
+    mine = store.invitations.where(
+        func.lower(Invitation.email) == email, Invitation.status == InvitationStatus.pending
+    )
     return [invitation_with_project(i) for i in mine]
 
 

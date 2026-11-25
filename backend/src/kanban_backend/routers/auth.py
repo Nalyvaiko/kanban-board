@@ -26,7 +26,7 @@ def register(input: RegisterInput) -> TokenResponse:
     if len(input.password) < 6:
         raise ApiError(400, "Password must be at least 6 characters")
     email = input.email.lower()
-    if any(u.email.lower() == email for u in store.users.values()):
+    if store.find_user_by_email(email) is not None:
         raise ApiError(409, "An account with that email already exists")
 
     now = utcnow_iso()
@@ -47,8 +47,7 @@ def register(input: RegisterInput) -> TokenResponse:
 
 @router.post("/auth/login", response_model=TokenResponse)
 def login(input: LoginInput) -> TokenResponse:
-    email = input.email.lower()
-    user = next((u for u in store.users.values() if u.email.lower() == email), None)
+    user = store.find_user_by_email(input.email)
     stored_hash = store.credentials.get(user.id) if user else None
     if not auth.verify_password_or_dummy(input.password, stored_hash) or user is None:
         raise unauthorized("Incorrect email or password")
@@ -66,7 +65,7 @@ def login_with_google(input: GoogleLoginInput) -> TokenResponse:
         raise unauthorized("The Google token could not be verified")
 
     email = f"{input.idToken.strip()[:24].lower()}@google.example"
-    user = next((u for u in store.users.values() if u.email.lower() == email), None)
+    user = store.find_user_by_email(email)
     if user is None:
         now = utcnow_iso()
         user = User(
