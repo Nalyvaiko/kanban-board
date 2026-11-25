@@ -17,9 +17,7 @@ router = APIRouter(tags=["Comments"])
 def list_comments(taskId: str, user: User = Depends(auth.get_current_user)) -> list[CommentWithAuthor]:
     task = get_task_or_404(taskId)
     auth.require_member(task.projectId, user)
-    comments = sorted(
-        (c for c in store.comments.values() if c.taskId == taskId), key=lambda c: c.createdAt
-    )
+    comments = store.comments.where(Comment.taskId == taskId, order_by=Comment.createdAt)
     return [comment_with_author(c) for c in comments]
 
 

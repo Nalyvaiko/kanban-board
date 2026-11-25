@@ -24,7 +24,7 @@ def get_label_or_404(label_id: str) -> Label:
 def list_labels(projectId: str, user: User = Depends(auth.get_current_user)) -> list[Label]:
     get_project_or_404(projectId)
     auth.require_member(projectId, user)
-    return [l for l in store.labels.values() if l.projectId == projectId]
+    return store.labels.where(Label.projectId == projectId)
 
 
 @router.post("/projects/{projectId}/labels", status_code=201, response_model=Label)
@@ -37,10 +37,10 @@ def create_label(
     name = input.name.strip().lower()
     if not name:
         raise ApiError(400, "Label name is required")
-    if any(l.projectId == projectId and l.name == name for l in store.labels.values()):
+    if store.labels.first(Label.projectId == projectId, Label.name == name) is not None:
         raise ApiError(409, "That label already exists")
 
-    existing_count = sum(1 for l in store.labels.values() if l.projectId == projectId)
+    existing_count = store.labels.count(Label.projectId == projectId)
     color = input.color or _PALETTE[existing_count % len(_PALETTE)]
     label = Label(id=new_id("label"), projectId=projectId, name=name, color=color)
     store.labels[label.id] = label
@@ -57,10 +57,10 @@ def rename_label(labelId: str, input: RenameLabelInput, user: User = Depends(aut
     name = input.name.strip().lower()
     if not name:
         raise ApiError(400, "Label name is required")
-    if any(
-        l.projectId == label.projectId and l.name == name and l.id != label.id
-        for l in store.labels.values()
-    ):
+    duplicate = store.labels.first(
+        Label.projectId == label.projectId, Label.name == name, Label.id != label.id
+    )
+    if duplicate is not None:
         raise ApiError(409, "That label already exists")
 
     label.name = name

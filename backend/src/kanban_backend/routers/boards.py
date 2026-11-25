@@ -12,6 +12,7 @@ from ..models import (
     CreateColumnInput,
     RenameColumnInput,
     ReorderColumnInput,
+    Task,
     User,
 )
 from ..seed import create_default_board
@@ -69,10 +70,7 @@ def get_board_data(boardId: str, user: User = Depends(auth.get_current_user)) ->
     board = get_board_or_404(boardId)
     auth.require_member(board.projectId, user)
     columns = store.list_columns(boardId)
-    tasks = sorted(
-        (t for t in store.tasks.values() if t.boardId == boardId),
-        key=lambda t: (t.columnId, t.position),
-    )
+    tasks = store.tasks.where(Task.boardId == boardId, order_by=(Task.columnId, Task.position, Task.id))
     return BoardData(board=board, columns=columns, tasks=tasks)
 
 

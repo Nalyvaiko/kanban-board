@@ -18,7 +18,7 @@ from __future__ import annotations
 import threading
 from uuid import uuid4
 
-from sqlalchemy import update
+from sqlalchemy import func, or_, update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import SQLModel, select
 
@@ -34,6 +34,7 @@ from .models import (
     Label,
     Project,
     ProjectMember,
+    Role,
     Task,
     TaskCounter,
     TaskRelation,
@@ -65,7 +66,38 @@ class _Collection:
         return obj
 
     def values(self) -> list:
+        """Every row in the table. Prefer `where()` - this loads the whole
+        table, so its cost grows with the entire database, not one project."""
         return list(SessionLocal.scalars(select(self._model)))
+
+    def where(self, *conditions, order_by=None, limit: int | None = None) -> list:
+        """Rows matching `conditions` (SQLAlchemy column expressions, e.g.
+        `Task.projectId == pid`), filtered/sorted/limited in the database so
+        the indexes on those columns are actually used. `order_by` is one
+        column expression or a tuple of them."""
+        stmt = select(self._model).where(*conditions)
+        if order_by is not None:
+            # Not `if order_by:` - a single SQL clause has no truth value.
+            clauses = order_by if isinstance(order_by, tuple | list) else (order_by,)
+            stmt = stmt.order_by(*clauses)
+        if limit is not None:
+            stmt = stmt.limit(limit)
+        return list(SessionLocal.scalars(stmt))
+
+    def first(self, *conditions):
+        """The first row matching `conditions`, or None."""
+        return SessionLocal.scalars(select(self._model).where(*conditions).limit(1)).first()
+
+    def count(self, *conditions) -> int:
+        stmt = select(func.count()).select_from(self._model).where(*conditions)
+        return SessionLocal.execute(stmt).scalar_one()
+
+    def delete_where(self, *conditions) -> None:
+        """Delete every row matching `conditions` (through the session, so
+        objects already loaded in this request see the delete)."""
+        for obj in self.where(*conditions):
+            SessionLocal.delete(obj)
+        SessionLocal.flush()
 
     def keys(self) -> list[str]:
         return [obj.id for obj in self.values()]
@@ -89,7 +121,7 @@ class _Collection:
         return SessionLocal.get(self._model, id) is not None
 
     def __len__(self) -> int:
-        return len(self.values())
+        return self.count()
 
     def __iter__(self):
         return (obj.id for obj in self.values())
@@ -209,81 +241,85 @@ class Store:
 
     # -- membership -----------------------------------------------------
 
+    # Every helper below filters in SQL (see `_Collection.where`), so its
+    # cost depends on the rows it actually needs - e.g. `get_member`, which
+    # runs on nearly every request, is one indexed lookup instead of a scan
+    # of every membership in the database.
+
     def get_member(self, project_id: str, user_id: str) -> ProjectMember | None:
-        for m in self.members.values():
-            if m.projectId == project_id and m.userId == user_id:
-                return m
-        return None
+        return self.members.first(ProjectMember.projectId == project_id, ProjectMember.userId == user_id)
 
     def list_members(self, project_id: str) -> list[ProjectMember]:
-        return [m for m in self.members.values() if m.projectId == project_id]
+        return self.members.where(ProjectMember.projectId == project_id)
 
     def admin_count(self, project_id: str) -> int:
-        return sum(1 for m in self.list_members(project_id) if m.role.value == "admin")
+        return self.members.count(ProjectMember.projectId == project_id, ProjectMember.role == Role.admin)
+
+    def project_ids_for_user(self, user_id: str) -> list[str]:
+        return [m.projectId for m in self.members.where(ProjectMember.userId == user_id)]
+
+    def find_user_by_email(self, email: str) -> User | None:
+        """Case-insensitive, matching how emails were compared before."""
+        return self.users.first(func.lower(User.email) == email.lower())
 
     # -- boards / columns -----------------------------------------------
 
     def list_boards(self, project_id: str) -> list[Board]:
-        return [b for b in self.boards.values() if b.projectId == project_id]
+        return self.boards.where(Board.projectId == project_id)
 
     def list_columns(self, board_id: str) -> list[Column]:
-        return sorted((c for c in self.columns.values() if c.boardId == board_id), key=lambda c: c.position)
+        return self.columns.where(Column.boardId == board_id, order_by=(Column.position, Column.id))
 
     # -- tasks ------------------------------------------------------------
 
     def list_tasks_for_project(self, project_id: str) -> list[Task]:
-        return [t for t in self.tasks.values() if t.projectId == project_id]
+        return self.tasks.where(Task.projectId == project_id)
 
     def list_tasks_for_column(self, column_id: str) -> list[Task]:
-        return sorted((t for t in self.tasks.values() if t.columnId == column_id), key=lambda t: t.position)
+        return self.tasks.where(Task.columnId == column_id, order_by=(Task.position, Task.id))
 
     # -- cascading deletes ------------------------------------------------
 
     def delete_task_cascade(self, task_id: str) -> None:
         self.tasks.pop(task_id, None)
-        for cid in [c.id for c in self.comments.values() if c.taskId == task_id]:
-            self.comments.pop(cid, None)
-        for aid in [a.id for a in self.attachments.values() if a.taskId == task_id]:
-            self.attachments.pop(aid, None)
-        for rid in [
-            r.id for r in self.relations.values() if r.taskId == task_id or r.relatedTaskId == task_id
-        ]:
-            self.relations.pop(rid, None)
-        for act_id in [a.id for a in self.activities.values() if a.taskId == task_id]:
-            self.activities.pop(act_id, None)
+        self.comments.delete_where(Comment.taskId == task_id)
+        self.attachments.delete_where(Attachment.taskId == task_id)
+        self.relations.delete_where(
+            or_(TaskRelation.taskId == task_id, TaskRelation.relatedTaskId == task_id)
+        )
+        self.activities.delete_where(Activity.taskId == task_id)
 
     def delete_column_cascade(self, column_id: str) -> None:
-        for tid in [t.id for t in self.tasks.values() if t.columnId == column_id]:
-            self.delete_task_cascade(tid)
+        for task in self.tasks.where(Task.columnId == column_id):
+            self.delete_task_cascade(task.id)
         self.columns.pop(column_id, None)
 
     def delete_board_cascade(self, board_id: str) -> None:
-        for cid in [c.id for c in self.columns.values() if c.boardId == board_id]:
-            self.delete_column_cascade(cid)
+        for column in self.columns.where(Column.boardId == board_id):
+            self.delete_column_cascade(column.id)
         self.boards.pop(board_id, None)
 
     def delete_project_cascade(self, project_id: str) -> None:
-        for bid in [b.id for b in self.boards.values() if b.projectId == project_id]:
-            self.delete_board_cascade(bid)
-        for lid in [label.id for label in self.labels.values() if label.projectId == project_id]:
-            self.labels.pop(lid, None)
-        for mid in [m.id for m in self.members.values() if m.projectId == project_id]:
-            self.members.pop(mid, None)
-        for iid in [i.id for i in self.invitations.values() if i.projectId == project_id]:
-            self.invitations.pop(iid, None)
-        for act_id in [a.id for a in self.activities.values() if a.projectId == project_id]:
-            self.activities.pop(act_id, None)
+        for board in self.boards.where(Board.projectId == project_id):
+            self.delete_board_cascade(board.id)
+        self.labels.delete_where(Label.projectId == project_id)
+        self.members.delete_where(ProjectMember.projectId == project_id)
+        self.invitations.delete_where(Invitation.projectId == project_id)
+        self.activities.delete_where(Activity.projectId == project_id)
         self.projects.pop(project_id, None)
 
     def remove_label_everywhere(self, label_id: str) -> None:
-        for task in self.tasks.values():
+        # labelIds is a JSON list, so it can't be filtered portably in SQL -
+        # but a label only ever appears on tasks in its own project.
+        label = self.labels.get(label_id)
+        tasks = self.list_tasks_for_project(label.projectId) if label is not None else self.tasks.values()
+        for task in tasks:
             if label_id in task.labelIds:
                 task.labelIds = [lid for lid in task.labelIds if lid != label_id]
 
     def unassign_user_in_project(self, project_id: str, user_id: str) -> None:
-        for task in self.tasks.values():
-            if task.projectId == project_id and task.assigneeId == user_id:
-                task.assigneeId = None
+        for task in self.tasks.where(Task.projectId == project_id, Task.assigneeId == user_id):
+            task.assigneeId = None
 
 
 # Single process-wide instance. Its collections route to a request-scoped
