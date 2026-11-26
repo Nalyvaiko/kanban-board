@@ -247,15 +247,27 @@ jobs:
           echo "::error::Deploy command never finished within 10 minutes."
           exit 1
 
+      # Healthy *and* serving the image just deployed: /api/health reports
+      # the running image tag as `version`, so a previous container that's
+      # still answering doesn't count as this deploy succeeding.
       - name: Health check
+        env:
+          HEALTH_URL: ${{ steps.stack.outputs.app_url }}/api/health
+          IMAGE: ${{ needs.build-and-push-image.outputs.image }}
         run: |
+          EXPECTED="${IMAGE##*:}"
           for i in $(seq 1 30); do
-            if curl -fsS "${{ steps.stack.outputs.app_url }}/api/health"; then
-              echo "Healthy."
-              exit 0
+            if BODY=$(curl -fsS "$HEALTH_URL"); then
+              VERSION=$(echo "$BODY" | jq -r '.version // empty')
+              if [ "$VERSION" = "$EXPECTED" ]; then
+                echo "Healthy, serving $VERSION."
+                exit 0
+              fi
+              echo "Healthy but serving '${VERSION:-unknown}', waiting for $EXPECTED... ($i/30)"
+            else
+              echo "Waiting for $HEALTH_URL to respond... ($i/30)"
             fi
-            echo "Waiting for ${{ steps.stack.outputs.app_url }}/api/health to respond... ($i/30)"
             sleep 10
           done
-          echo "::error::App never became healthy at ${{ steps.stack.outputs.app_url }}/api/health"
+          echo "::error::$EXPECTED never became healthy at $HEALTH_URL"
           exit 1

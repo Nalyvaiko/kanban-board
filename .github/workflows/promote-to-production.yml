@@ -76,11 +76,21 @@ jobs:
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
           echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
 
+      # Healthy, and actually serving the image .env says it is - so what
+      # gets promoted is what dev traffic really exercised.
       - name: Confirm dev is actually healthy right now
+        env:
+          IMAGE: ${{ steps.state.outputs.image }}
         run: |
           APP_URL=$(aws cloudformation describe-stacks --stack-name "${{ vars.AWS_STACK_NAME }}" \
             --query "Stacks[0].Outputs[?OutputKey=='AppUrl'].OutputValue" --output text)
-          curl -fsS "$APP_URL/api/health"
+          BODY=$(curl -fsS "$APP_URL/api/health")
+          echo "$BODY"
+          VERSION=$(echo "$BODY" | jq -r '.version // empty')
+          if [ -n "$VERSION" ] && [ "$VERSION" != "${IMAGE##*:}" ]; then
+            echo "::error::Dev's .env says $IMAGE, but dev is serving '$VERSION' - not promoting."
+            exit 1
+          fi
 
   deploy-to-prod:
     name: Deploy dev's image to production
@@ -182,15 +192,32 @@ jobs:
           echo "::error::Deploy command never finished within 10 minutes."
           exit 1
 
+      # Healthy *and* serving the promoted image (see the same step in
+      # ci-cd.yml). An image built before /api/health reported `version`
+      # can't be told apart from the previous container, so for those it
+      # falls back to "any healthy response", with a warning.
       - name: Health check
+        env:
+          HEALTH_URL: ${{ steps.stack.outputs.app_url }}/api/health
+          IMAGE: ${{ needs.get-dev-state.outputs.image }}
         run: |
+          EXPECTED="${IMAGE##*:}"
           for i in $(seq 1 30); do
-            if curl -fsS "${{ steps.stack.outputs.app_url }}/api/health"; then
-              echo "Healthy."
-              exit 0
+            if BODY=$(curl -fsS "$HEALTH_URL"); then
+              VERSION=$(echo "$BODY" | jq -r '.version // empty')
+              if [ "$VERSION" = "$EXPECTED" ]; then
+                echo "Healthy, serving $VERSION."
+                exit 0
+              fi
+              if [ -z "$VERSION" ]; then
+                echo "::warning::$HEALTH_URL doesn't report a version (image predates that) - accepting any healthy response."
+                exit 0
+              fi
+              echo "Healthy but serving '$VERSION', waiting for $EXPECTED... ($i/30)"
+            else
+              echo "Waiting for $HEALTH_URL to respond... ($i/30)"
             fi
-            echo "Waiting for ${{ steps.stack.outputs.app_url }}/api/health to respond... ($i/30)"
             sleep 10
           done
-          echo "::error::App never became healthy at ${{ steps.stack.outputs.app_url }}/api/health"
+          echo "::error::$EXPECTED never became healthy at $HEALTH_URL"
           exit 1

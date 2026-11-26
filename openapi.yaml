@@ -37,8 +37,45 @@ tags:
   - name: Activity
   - name: Dashboard
   - name: Users
+  - name: Health
 
 paths:
+  # -------------------------------------------------------------------------
+  # Health
+  # -------------------------------------------------------------------------
+  /health:
+    get:
+      tags: [Health]
+      summary: Liveness/readiness check
+      description: >
+        Unauthenticated. Reports that the process is up and the database is
+        reachable, plus which build is answering. The CI/CD pipeline waits
+        for `version` to equal the image tag it just deployed.
+      security: []
+      responses:
+        "200":
+          description: Healthy.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, version, environment]
+                properties:
+                  status: { type: string, enum: [ok] }
+                  version:
+                    type: string
+                    description: The deployed image tag (`APP_VERSION`), or `unknown` outside a deploy.
+                  environment:
+                    type: string
+                    description: "`dev`, `production`, or `development` outside a deploy."
+        "503":
+          description: >
+            The database is unreachable. The message is deliberately generic;
+            the underlying error is logged server-side only.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
   # -------------------------------------------------------------------------
   # Auth
   # -------------------------------------------------------------------------
