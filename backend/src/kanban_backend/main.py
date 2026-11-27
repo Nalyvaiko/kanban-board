@@ -74,12 +74,21 @@ def create_app() -> FastAPI:
         # Gives this request its own session scope (see db.py - route
         # handlers and their dependencies can run on different worker
         # threads, so this can't just be "the current thread's session"),
-        # commits whatever it accumulated, rolls back on an unhandled
-        # error, and always tears it down afterward.
+        # commits whatever it accumulated only if the request succeeded,
+        # and always tears it down afterward.
+        #
+        # "Succeeded" means a < 400 response, not just "no unhandled
+        # exception": an ApiError raised mid-handler becomes a normal 4xx
+        # response by the time it gets here, so committing on that would
+        # persist whatever the handler had already written before it
+        # failed - a half-applied request. A request is all or nothing.
         token = new_session_scope()
         try:
             response = await call_next(request)
-            SessionLocal.commit()
+            if response.status_code < 400:
+                SessionLocal.commit()
+            else:
+                SessionLocal.rollback()
             return response
         except Exception:
             SessionLocal.rollback()
