@@ -40,6 +40,6 @@ def test_health_does_not_leak_database_error_details(client: TestClient, monkeyp
     response = client.get("/api/health")
 
     assert response.status_code == 503
-    assert response.json()["detail"] == {"message": "Database unreachable", "status": 503}
+    assert response.json() == {"message": "Database unreachable", "status": 503}
     assert "kanban" not in response.text
     assert "db.internal" not in response.text

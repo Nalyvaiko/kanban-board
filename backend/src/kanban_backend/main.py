@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .db import SessionLocal, end_session_scope, init_db, new_session_scope
-from .errors import not_found
+from .errors import install_error_handlers, not_found
 from .routers import (
     activity,
     attachments,
@@ -57,6 +57,7 @@ ALL_ROUTERS = (
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Mini Jira API", version="1.0.0")
+    install_error_handlers(app)
 
     setup_telemetry(app)
 
