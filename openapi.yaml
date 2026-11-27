@@ -1412,12 +1412,29 @@ components:
   schemas:
     Error:
       type: object
+      description: >
+        The body of every error response, at the top level (not wrapped in
+        `detail`) - including unknown routes (404), wrong methods (405), and
+        request bodies/parameters that fail schema validation (422).
       required: [message, status]
       properties:
-        message: { type: string }
+        message:
+          type: string
+          description: >
+            Human-readable. For a 422 it names the first invalid field, e.g.
+            `email: value is not a valid email address`.
         status:
           type: integer
-          description: HTTP status code, mirrored in the body (400 default, 401, 403, 404, 409).
+          description: HTTP status code, mirrored in the body (400 default, 401, 403, 404, 405, 409, 422, 503).
+        errors:
+          type: array
+          description: Only on a 422 - every invalid field, not just the first.
+          items:
+            type: object
+            required: [field, message]
+            properties:
+              field: { type: string, description: "Dotted path within the body/query, e.g. `email`." }
+              message: { type: string }
 
     Role:
       type: string
